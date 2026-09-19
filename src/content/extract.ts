@@ -202,14 +202,20 @@ export function resolve(reg: Registry, id: string): Element | null {
 export function extractElements(doc: Document, reg: Registry, opts: ExtractOptions = {}): PageElement[] {
   const requireLayout = opts.requireLayout ?? true;
   const max = opts.max ?? MAX_ELEMENTS;
-  const found: { el: Element; view: boolean }[] = [];
+  const found: { el: Element; view: boolean; type: PageElement['type']; isField: boolean; name: string | undefined }[] = [];
   const seen = new Set<Element>();
 
   for (const el of walk(doc)) {
     if (!el.matches(INTERACTIVE) || seen.has(el) || inOwnUi(el)) continue;
     seen.add(el);
     if (!isVisible(el, requireLayout)) continue;
-    found.push({ el, view: requireLayout ? inViewport(el) : true });
+    const type = typeOf(el);
+    const isField = type === 'input' || type === 'textarea' || type === 'select' || type === 'checkbox' || type === 'radio';
+    const name = isField ? fieldLabel(el) : clickableText(el);
+    // An element with nothing to call it by cannot be described to the model, let alone
+    // chosen by it. Dropping these here frees budget for elements that can be acted on.
+    if (!name && !(el instanceof HTMLInputElement && el.placeholder)) continue;
+    found.push({ el, view: requireLayout ? inViewport(el) : true, type, isField, name });
   }
 
   // Over budget: keep what's on screen first, then fill from the rest, preserving document order.
@@ -221,13 +227,11 @@ export function extractElements(doc: Document, reg: Registry, opts: ExtractOptio
     chosen = found.filter((f) => keep.has(f));
   }
 
-  return chosen.map(({ el, view }): PageElement => {
-    const type = typeOf(el);
-    const isField = type === 'input' || type === 'textarea' || type === 'select' || type === 'checkbox' || type === 'radio';
+  return chosen.map(({ el, view, type, isField, name }): PageElement => {
     const sensitive = isSensitive(el);
     const out: PageElement = { id: idFor(reg, el), type };
-    if (isField) out.label = fieldLabel(el);
-    else out.text = clickableText(el);
+    if (isField) out.label = name;
+    else out.text = name;
     if (el instanceof HTMLInputElement) {
       out.inputType = el.type;
       out.placeholder = clean(el.placeholder, 60);

@@ -76,6 +76,21 @@ describe('extractElements', () => {
     expect(els[1]).toMatchObject({ type: 'button', text: 'Continue Application' });
   });
 
+  it('drops elements with nothing to identify them by, freeing budget for real ones', () => {
+    // Real pages are full of icon-only and wrapper anchors; the model cannot refer to these.
+    page(`
+      <a href="/a"></a>
+      <a href="/b"><span></span></a>
+      <a href="/c">Real link</a>
+      <button></button>
+      <input type="text" placeholder="Search" />
+      <a href="/d"><img alt="Company logo" /></a>
+    `);
+    const els = extractElements(document, reg, opts);
+    expect(els.map((e) => e.text ?? e.placeholder)).toEqual(['Real link', 'Search', 'Company logo']);
+    expect(els.every((e) => e.text || e.label || e.placeholder)).toBe(true);
+  });
+
   it('ignores TaskPilot\'s own overlay', () => {
     page(`<div id="taskpilot-root"><button>Return to Task</button></div><button>Page button</button>`);
     expect(extractElements(document, reg, opts).map((e) => e.text)).toEqual(['Page button']);

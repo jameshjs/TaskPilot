@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="description" content="Software Engineering Intern application — Northwind Systems" />
+<title>Apply: Software Engineering Intern — Northwind</title>
+<style>
+  :root { --ink:#16141f; --line:#e2e0ee; --accent:#3d5afe; }
+  * { box-sizing:border-box; }
+  body { font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; color:var(--ink); margin:0; background:#f6f6fb; }
+  .wrap { max-width:640px; margin:0 auto; padding:28px 20px 80px; }
+  header { border-bottom:1px solid var(--line); padding-bottom:16px; margin-bottom:24px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .muted { color:#6b687f; }
+  fieldset { border:1px solid var(--line); border-radius:12px; padding:16px; margin:0 0 18px; background:#fff; }
+  legend { font-weight:650; padding:0 6px; }
+  label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
+  input[type=text],input[type=email],input[type=tel],input[type=url],textarea,select {
+    width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font:inherit; background:#fff; }
+  textarea { min-height:110px; resize:vertical; }
+  .req::after { content:" *"; color:#d33; }
+  .row { display:flex; gap:12px; } .row > div { flex:1; }
+  button { font:inherit; font-weight:650; padding:10px 16px; border-radius:8px; border:0; cursor:pointer; }
+  .primary { background:var(--accent); color:#fff; }
+  .ghost { background:#eceafe; color:#2a3bb5; }
+  .hint { font-size:12px; color:#6b687f; margin-top:4px; }
+  .check { display:flex; gap:8px; align-items:flex-start; margin:10px 0; font-weight:400; }
+  #saved { display:none; padding:10px; background:#e7f7ed; color:#1c6b3f; border-radius:8px; margin-bottom:12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Software Engineering Intern</h1>
+    <p class="muted">Northwind Systems · Remote / Toronto · Summer 2027</p>
+    <p class="muted" style="font-size:12px">Demo form for testing TaskPilot. Nothing is submitted anywhere.</p>
+  </header>
+
+  <div id="saved">Draft saved locally.</div>
+
+  <form id="app" onsubmit="event.preventDefault(); document.getElementById('saved').style.display='block';">
+    <fieldset>
+      <legend>Your details</legend>
+      <div class="row">
+        <div><label class="req" for="first">First name</label><input id="first" name="first_name" type="text" autocomplete="given-name" required /></div>
+        <div><label class="req" for="last">Last name</label><input id="last" name="last_name" type="text" autocomplete="family-name" required /></div>
+      </div>
+      <label class="req" for="email">Email</label>
+      <input id="email" name="email" type="email" placeholder="you@school.edu" autocomplete="email" required />
+      <label for="phone">Phone</label>
+      <input id="phone" name="phone" type="tel" autocomplete="tel" />
+      <label for="site">Portfolio or GitHub</label>
+      <input id="site" name="website" type="url" placeholder="https://github.com/…" />
+      <label for="resume">Resume</label>
+      <input id="resume" name="resume" type="file" accept=".pdf,.doc,.docx" />
+      <p class="hint">PDF or Word, up to 5&nbsp;MB.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Eligibility</legend>
+      <label class="req" for="school">School</label>
+      <input id="school" name="school" type="text" required />
+      <label for="grad">Expected graduation</label>
+      <select id="grad" name="graduation">
+        <option value="">Select…</option>
+        <option>2026</option><option>2027</option><option>2028</option><option>2029</option>
+      </select>
+      <label for="auth">Are you authorized to work in Canada?</label>
+      <select id="auth" name="work_auth"><option value="">Select…</option><option>Yes</option><option>No</option></select>
+      <label class="check"><input type="checkbox" name="sponsorship" /> I will require visa sponsorship</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Tell us about you</legend>
+      <label class="req" for="project">Tell us about a project you're proud of.</label>
+      <textarea id="project" name="proud_project" maxlength="1200" required></textarea>
+      <p class="hint">Max 1200 characters.</p>
+      <label for="why">Why do you want to work here?</label>
+      <textarea id="why" name="why_us" maxlength="800"></textarea>
+    </fieldset>
+
+    <fieldset>
+      <legend>Account</legend>
+      <label for="pw">Create a password for your application portal</label>
+      <input id="pw" name="password" type="password" autocomplete="new-password" />
+      <p class="hint">TaskPilot must never touch this field.</p>
+    </fieldset>
+
+    <div style="display:flex; gap:10px">
+      <button type="button" class="ghost" id="draft">Save draft</button>
+      <button type="submit" class="primary" id="submitBtn">Submit application</button>
+    </div>
+  </form>
+</div>
+</body>
+</html>
