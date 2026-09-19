@@ -1,0 +1,30 @@
+{
+  "name": "taskpilot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AI browser task & focus agent — Chrome extension (MV3) + Cloudflare Worker backend",
+  "scripts": {
+    "icons": "node scripts/make-icons.mjs",
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p backend/tsconfig.json",
+    "test": "vitest run",
+    "backend:dev": "npm --prefix backend run dev",
+    "backend:deploy": "npm --prefix backend run deploy"
+  },
+  "dependencies": {
+    "@sentry/browser": "^8.55.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.300",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "esbuild": "^0.24.2",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
