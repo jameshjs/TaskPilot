@@ -1,0 +1,27 @@
+name = "taskpilot"
+main = "src/index.ts"
+compatibility_date = "2025-01-15"
+compatibility_flags = ["nodejs_compat"]
+
+# Set with: wrangler secret put OPENAI_API_KEY
+# Optional secrets: TASKPILOT_TOKEN (shared secret with the extension), SENTRY_DSN
+[vars]
+OPENAI_MODEL = "gpt-4o-mini"
+ALLOWED_ORIGIN = "*"
+
+[[durable_objects.bindings]]
+name = "SESSIONS"
+class_name = "SessionStore"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SessionStore"]
+
+# Optional: uncomment and set a real id to log task events to D1.
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "taskpilot"
+# database_id = "your-d1-id"
+
+[observability]
+enabled = true
