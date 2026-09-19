@@ -173,6 +173,45 @@ export interface WhatWasIDoingResponse {
   narrative: string;
 }
 
+// ── Engineering workflow actions ─────────────────────────────────────────
+export const INTEGRATION_NAMES = ['github', 'discord'] as const;
+export type IntegrationName = (typeof INTEGRATION_NAMES)[number];
+export type IntegrationStatus = 'connected' | 'disconnected' | 'demo';
+export type WorkflowAction = 'create_issue' | 'create_pull_request' | 'message_person' | 'ask_user';
+export type EvidenceStatus = 'confirmed' | 'conflicting' | 'missing' | 'stale';
+
+export interface IntegrationState { name: IntegrationName; status: IntegrationStatus; account?: string; scopes: string[]; }
+export interface WorkflowEvidence { claim: string; sources: string[]; confidence: number; status: EvidenceStatus; }
+export interface ReconciliationResult {
+  facts: WorkflowEvidence[];
+  conflicts: string[];
+  missing: string[];
+  recommendation: string;
+  nextAction: WorkflowAction;
+}
+export interface ActionPreview {
+  previewId: string;
+  action: Exclude<WorkflowAction, 'ask_user'>;
+  provider: IntegrationName;
+  title: string;
+  body: string;
+  target: string;
+  fields: Record<string, unknown>;
+  approvalRequired: boolean;
+  status: 'pending' | 'approved' | 'rejected' | 'executed' | 'failed';
+  createdAt: string;
+  expiresAt: string;
+  simulated: boolean;
+  result?: { url?: string; message?: string };
+}
+export interface IntegrationConnectRequest { integration: IntegrationName; demo?: boolean }
+export interface IntegrationStatusResponse { integrations: IntegrationState[] }
+export interface ReconcileRequest { task: string; currentStep?: string; tabs: TabMeta[]; notes?: string; references?: string[] }
+export interface ReconcileResponse extends ReconciliationResult { source: 'ai' | 'demo'; }
+export interface ActionPreviewRequest { task: string; reconciliation: ReconciliationResult; action?: Exclude<WorkflowAction, 'ask_user'>; fields?: Record<string, unknown> }
+export interface ActionExecuteRequest { previewId: string; approvalToken: string; sendDiscord?: boolean }
+export interface ActionExecuteResponse { preview: ActionPreview; simulated: boolean }
+
 // ── Sync (Durable Object) ──────────────────────────────────────────────────
 
 export interface SyncedSession {

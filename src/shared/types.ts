@@ -222,6 +222,8 @@ export interface Settings {
   profile: string;
   /** Hostnames never sent to the model. */
   excludedHosts: string[];
+  /** Sites the user has declared off-task: `youtube.com` or `reddit.com/r/memes`. Warns without asking the model. */
+  distractingUrls: string[];
   /** Opt-in: mirror saved sessions to the backend Durable Object. */
   syncEnabled: boolean;
   userId: string;

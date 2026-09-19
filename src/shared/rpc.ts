@@ -15,6 +15,7 @@ import type {
   WhatWasIDoing,
   FormField,
 } from './types';
+import type { ActionPreview, ActionExecuteResponse, IntegrationState, ReconcileResponse } from '../../shared/api';
 
 /** Every request the side panel (or a content script) can make of the service worker. */
 export interface RpcMap {
@@ -59,6 +60,10 @@ export interface RpcMap {
   'settings.get': { req: void; res: Settings };
   'settings.set': { req: Partial<Settings>; res: Settings };
   'sync.now': { req: void; res: { pushed: number; pulled: number } };
+  'workflow.status': { req: void; res: { integrations: IntegrationState[] } };
+  'workflow.reconcile': { req: { notes?: string }; res: ReconcileResponse };
+  'workflow.preview': { req: { action?: 'create_issue' | 'create_pull_request' | 'message_person'; fields?: Record<string, unknown> }; res: ActionPreview };
+  'workflow.execute': { req: { previewId: string; sendDiscord?: boolean }; res: ActionExecuteResponse };
 }
 
 export type RpcType = keyof RpcMap;

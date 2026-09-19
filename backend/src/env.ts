@@ -7,4 +7,6 @@ export interface Env {
   ALLOWED_ORIGIN: string;
   SESSIONS: DurableObjectNamespace;
   DB?: D1Database;
+  COMPOSIO_API_KEY?: string;
+  COMPOSIO_BASE_URL?: string;
 }

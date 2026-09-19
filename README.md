@@ -153,3 +153,19 @@ employer.
   off in the side panel, which displays your tab titles.
 - **Browserbase** — the intended home for Navigator regression runs against
   unfamiliar sites. Not wired up yet.
+- **Composio** — the Actions view reconciles browser/GitHub/Discord context,
+  previews an approved issue, pull request, or Discord message, and executes
+  through the Worker-side adapter. Without a Composio key, the same flow runs
+  as an explicitly labelled deterministic demo.
+
+## Engineering workflow demo
+
+Open TaskPilot → **Actions** → **Analyze task**. The Worker returns evidence
+with confidence and flags conflicts or missing repository information. Select
+an action to preview the exact GitHub or Discord mutation. Execution requires
+the preview id as an approval token; demo mode produces a simulated result and
+never contacts an external provider.
+
+For live Composio execution, configure COMPOSIO_API_KEY and optionally
+COMPOSIO_BASE_URL as Worker secrets/variables. Provider credentials never enter
+the extension.

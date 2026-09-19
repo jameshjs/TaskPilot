@@ -5,17 +5,19 @@ import type { ResumeInfo, SessionSummary } from '../shared/types';
 import { ToastProvider, useLoad } from './hooks';
 import { initTelemetry } from './telemetry';
 import { HistoryView } from './views/HistoryView';
+import { ActionsView } from './views/ActionsView';
 import { SessionsView } from './views/SessionsView';
 import { SettingsView } from './views/SettingsView';
 import { TabsView } from './views/TabsView';
 import { TaskView } from './views/TaskView';
 import './main.css';
 
-type Tab = 'task' | 'tabs' | 'sessions' | 'history' | 'settings';
+type Tab = 'task' | 'tabs' | 'sessions' | 'actions' | 'history' | 'settings';
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'task', label: 'Task', icon: '🎯' },
   { id: 'tabs', label: 'Tabs', icon: '🗂' },
   { id: 'sessions', label: 'Sessions', icon: '💾' },
+  { id: 'actions', label: 'Actions', icon: '⚡' },
   { id: 'history', label: 'History', icon: '🕘' },
   { id: 'settings', label: 'Settings', icon: '⚙️' },
 ];
@@ -81,6 +83,7 @@ function App() {
             onRestored={(r) => { setResume(r); setFinished(null); setTab('task'); }}
           />
         ) : null}
+        {tab === 'actions' ? <ActionsView /> : null}
         {tab === 'history' ? <HistoryView /> : null}
         {tab === 'settings' ? <SettingsView settings={settings.data} reload={settings.reload} /> : null}
       </main>

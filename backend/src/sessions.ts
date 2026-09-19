@@ -1,4 +1,5 @@
 import type { SyncedSession } from '../../shared/api';
+import type { ActionPreview } from '../../shared/api';
 
 const MAX_SESSIONS = 200;
 
@@ -12,6 +13,16 @@ export class SessionStore {
   async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
     switch (url.pathname) {
+      case '/preview/put': {
+        const preview = (await req.json()) as ActionPreview;
+        if (!preview?.previewId) return new Response('previewId required', { status: 400 });
+        await this.state.storage.put('p:' + preview.previewId, preview);
+        return Response.json({ ok: true });
+      }
+      case '/preview/get': {
+        const preview = await this.state.storage.get<ActionPreview>('p:' + url.searchParams.get('id'));
+        return Response.json({ preview: preview ?? null });
+      }
       case '/put': {
         const { session } = (await req.json()) as { session: SyncedSession };
         if (!session?.sessionId) return new Response('sessionId required', { status: 400 });

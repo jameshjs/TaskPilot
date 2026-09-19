@@ -32,6 +32,11 @@ export function SettingsView({ settings, reload }: { settings: Settings | undefi
         <label className="lbl">Warn only above {Math.round(draft.driftThreshold * 100)}% confidence
           <input type="range" min={0.5} max={0.95} step={0.05} value={draft.driftThreshold} onChange={(e) => set('driftThreshold', Number(e.target.value))} onMouseUp={() => save({ driftThreshold: draft.driftThreshold })} onTouchEnd={() => save({ driftThreshold: draft.driftThreshold })} />
         </label>
+        <label className="lbl">Always a distraction (one per line)
+          <textarea className="input" rows={4} value={draft.distractingUrls.join('\n')} onChange={(e) => set('distractingUrls', e.target.value.split('\n').map((s) => s.trim()).filter(Boolean))} placeholder={'reddit.com\nyoutube.com/shorts\nnews.ycombinator.com'} />
+        </label>
+        <p className="hint">Warns the moment you land on these, without asking the model. A whole site (<code>reddit.com</code>, subdomains included) or one section of it (<code>reddit.com/r/memes</code>). &ldquo;This Is Relevant&rdquo; on the warning still lets a single page through.</p>
+        <div className="row end"><Button variant="primary" onClick={() => save({ distractingUrls: draft.distractingUrls })}>Save</Button></div>
       </Card>
 
       <Card title="About me">

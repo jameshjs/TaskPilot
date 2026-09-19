@@ -10,6 +10,7 @@ export const DEFAULT_SETTINGS: Settings = {
   driftThreshold: 0.75,
   profile: '',
   excludedHosts: [],
+  distractingUrls: [],
   syncEnabled: false,
   userId: '',
 };

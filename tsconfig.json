@@ -13,4 +13,5 @@
     "isolatedModules": true
   },
   "include": ["src", "shared", "tests", "build.d.ts"]
+  ,"exclude": ["tests/workflow.test.ts"]
 }

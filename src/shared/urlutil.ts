@@ -62,3 +62,30 @@ export function matchesHost(host: string, patterns: string[]): boolean {
     return !!q && (host === q || host.endsWith(`.${q}`));
   });
 }
+
+/**
+ * Does a URL match one of the user's site patterns? A pattern is a host
+ * (`youtube.com`, which also covers its subdomains) optionally followed by a path
+ * prefix (`reddit.com/r/memes`). The prefix has to land on a segment boundary, so
+ * `reddit.com/r/memes` does not also catch `/r/memesearch`. Query strings are ignored.
+ */
+export function matchesUrlPattern(url: string, patterns: string[]): boolean {
+  let host: string;
+  let path: string;
+  try {
+    const u = new URL(url);
+    host = u.hostname.replace(/^www\./, '').toLowerCase();
+    path = u.pathname.replace(/\/+$/, '').toLowerCase();
+  } catch {
+    return false;
+  }
+  return patterns.some((raw) => {
+    const q = raw.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '');
+    if (!q) return false;
+    const slash = q.indexOf('/');
+    const qHost = slash === -1 ? q : q.slice(0, slash);
+    const qPath = slash === -1 ? '' : q.slice(slash);
+    if (host !== qHost && !host.endsWith(`.${qHost}`)) return false;
+    return !qPath || path === qPath || path.startsWith(`${qPath}/`);
+  });
+}

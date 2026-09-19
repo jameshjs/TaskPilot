@@ -1,7 +1,7 @@
 import type { FocusResponse } from '../../shared/api';
 import { currentStepTitle } from '../shared/sessionLogic';
 import type { FocusState, TaskSession } from '../shared/types';
-import { hostOf, isWebUrl, matchesHost, normalizeUrl, redactTitle, redactUrl } from '../shared/urlutil';
+import { hostOf, isWebUrl, matchesHost, matchesUrlPattern, normalizeUrl, redactTitle, redactUrl } from '../shared/urlutil';
 import { callApi } from './api';
 import { toContent } from './content';
 import { addTabsToWorkspace, setPaused } from './sessions';
@@ -48,6 +48,7 @@ async function adoptOpenedTab(tab: chrome.tabs.Tab): Promise<void> {
   const [session, settings] = await Promise.all([getActiveSession(), getSettings()]);
   if (!session || session.paused || !settings.autoAddRelevantTabs || tab.id == null || tab.openerTabId == null) return;
   if (session.groupId == null || session.groupId < 0) return;
+  if (matchesUrlPattern(tab.pendingUrl ?? tab.url ?? '', settings.distractingUrls)) return;
   const opener = await chrome.tabs.get(tab.openerTabId).catch(() => null);
   if (opener?.groupId === session.groupId) await addTabsToWorkspace([tab.id]).catch(() => undefined);
 }
@@ -60,7 +61,11 @@ async function logWorkspaceArrival(tabId: number, tab: chrome.tabs.Tab): Promise
 }
 
 function inWorkspace(session: TaskSession, tab: chrome.tabs.Tab): boolean {
-  if (session.groupId != null && session.groupId >= 0 && tab.groupId === session.groupId) return true;
+  return session.groupId != null && session.groupId >= 0 && tab.groupId === session.groupId;
+}
+
+/** The user pressed "This Is Relevant" on this exact page; outranks every other rule. */
+function markedRelevant(session: TaskSession, tab: chrome.tabs.Tab): boolean {
   return !!tab.url && session.relevantUrls.includes(normalizeUrl(tab.url));
 }
 
@@ -95,6 +100,17 @@ export async function evaluateTab(tabId: number): Promise<void> {
 
   const base = { pageTitle: tab.title, pageUrl: tab.url, tabId };
 
+  if (markedRelevant(session, tab)) {
+    await markOnTask(prev, { ...base, classification: 'RELEVANT', confidence: 1, reason: 'You marked this page as relevant.' }, session);
+    return;
+  }
+
+  // The user's own call, so it beats both the workspace group and the model.
+  if (matchesUrlPattern(tab.url, settings.distractingUrls)) {
+    await markDrifting(prev, { ...base, classification: 'DISTRACTING', confidence: 1, reason: 'You listed this site as a distraction.' }, session, tab);
+    return;
+  }
+
   if (inWorkspace(session, tab)) {
     await markOnTask(prev, { ...base, classification: 'RELEVANT', confidence: 1, reason: 'Part of your task workspace.' }, session);
     return;
@@ -124,12 +140,16 @@ export async function evaluateTab(tabId: number): Promise<void> {
     return;
   }
 
+  await markDrifting(prev, state, session, tab);
+}
+
+async function markDrifting(prev: FocusState, state: Omit<FocusState, 'status'>, session: TaskSession, tab: chrome.tabs.Tab): Promise<void> {
   const wasDrifting = prev.status === 'drifting';
   const driftSince = wasDrifting && prev.driftSince ? prev.driftSince : new Date().toISOString();
   const next: FocusState = { ...state, status: 'drifting', driftSince, lastNudgeAt: prev.lastNudgeAt, dismissedUrl: prev.dismissedUrl };
   await setFocus(next);
-  if (!wasDrifting) await logEvent('drift', `Opened ${tab.title || hostOf(tab.url)}`, session.sessionId);
-  if (prev.dismissedUrl !== normalizeUrl(tab.url)) await showWarning(next, session);
+  if (!wasDrifting) await logEvent('drift', `Opened ${tab.title || hostOf(tab.url!)}`, session.sessionId);
+  if (prev.dismissedUrl !== normalizeUrl(tab.url!)) await showWarning(next, session);
 }
 
 async function markOnTask(prev: FocusState, state: Omit<FocusState, 'status'>, session: TaskSession): Promise<void> {

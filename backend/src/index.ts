@@ -3,6 +3,7 @@ import type { Env } from './env';
 import { authorize, corsHeaders, HttpError, json, readJson } from './http';
 import { SessionStore } from './sessions';
 import { optStr, str as reqStr } from './validate';
+import * as workflow from './workflow';
 
 export { SessionStore };
 
@@ -27,7 +28,30 @@ const ROUTES: Record<string, Handler> = {
     console.warn('taskpilot.telemetry', JSON.stringify({ kind: optStr(body.kind, 40), message: optStr(body.message, 400), tags: body.tags }));
     return { ok: true };
   },
+  '/integrations/status': async (env) => workflow.integrationStatus(env),
+  '/integrations/connect': async (env, body) => workflow.connect(env, body),
+  '/context/reconcile': async (env, body) => workflow.reconcile(env, body),
+  '/actions/preview': async (env, body) => {
+    const preview = workflow.preview(env, body);
+    const userId = reqStr(body.userId, 'userId', 80);
+    await savePreview(env, userId, preview);
+    return preview;
+  },
+  '/actions/execute': async (env, body) => {
+    const userId = reqStr(body.userId, 'userId', 80);
+    return workflow.execute(env, body, (id) => getPreview(env, userId, id), (p) => savePreview(env, userId, p));
+  },
 };
+
+async function savePreview(env: Env, userId: string, preview: import('../../shared/api').ActionPreview): Promise<void> {
+  const stub = env.SESSIONS.get(env.SESSIONS.idFromName(userId));
+  await stub.fetch('https://do/preview/put', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(preview) });
+}
+async function getPreview(env: Env, userId: string, id: string): Promise<import('../../shared/api').ActionPreview | null> {
+  const stub = env.SESSIONS.get(env.SESSIONS.idFromName(userId));
+  const res = await stub.fetch('https://do/preview/get?id=' + encodeURIComponent(id));
+  return (await res.json() as { preview: import('../../shared/api').ActionPreview | null }).preview;
+}
 
 async function syncCall(env: Env, body: Record<string, unknown>, path: string, payload: unknown): Promise<unknown> {
   const userId = reqStr(body.userId, 'userId', 80);

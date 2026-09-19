@@ -7,6 +7,7 @@ import * as sessions from './sessions';
 import { getActiveSession, getFocus, getHistory, getSettings, setSettings } from './store';
 import { syncNow } from './sync';
 import * as tabs from './tabs';
+import * as workflow from './workflow';
 
 type Handlers = { [K in RpcType]: (req: RpcRequest<K>, sender: chrome.runtime.MessageSender) => Promise<RpcResponse<K>> };
 
@@ -58,6 +59,10 @@ const handlers: Handlers = {
   'settings.get': () => getSettings(),
   'settings.set': (patch) => setSettings(patch),
   'sync.now': () => syncNow(),
+  'workflow.status': () => workflow.status(),
+  'workflow.reconcile': ({ notes }) => workflow.reconcile(notes),
+  'workflow.preview': ({ action, fields }) => workflow.preview(action, fields),
+  'workflow.execute': ({ previewId, sendDiscord }) => workflow.execute(previewId, sendDiscord),
 };
 
 // ── Message routing ────────────────────────────────────────────────────────
@@ -121,4 +126,3 @@ chrome.runtime.onStartup.addListener(async () => {
     if (!ok) await sessions.detachGroup(s.sessionId);
   }
 });
-
