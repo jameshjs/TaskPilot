@@ -1,5 +1,5 @@
 import type { SyncedSession } from '../../shared/api';
-import type { ActionPreview } from '../../shared/api';
+import type { StoredPreview } from './workflow';
 
 const MAX_SESSIONS = 200;
 
@@ -14,14 +14,15 @@ export class SessionStore {
     const url = new URL(req.url);
     switch (url.pathname) {
       case '/preview/put': {
-        const preview = (await req.json()) as ActionPreview;
-        if (!preview?.previewId) return new Response('previewId required', { status: 400 });
-        await this.state.storage.put('p:' + preview.previewId, preview);
+        const stored = (await req.json()) as StoredPreview;
+        if (!stored?.preview?.previewId) return new Response('previewId required', { status: 400 });
+        await this.state.storage.put('p:' + stored.preview.previewId, stored);
+        await this.sweepPreviews();
         return Response.json({ ok: true });
       }
       case '/preview/get': {
-        const preview = await this.state.storage.get<ActionPreview>('p:' + url.searchParams.get('id'));
-        return Response.json({ preview: preview ?? null });
+        const stored = await this.state.storage.get<StoredPreview>('p:' + url.searchParams.get('id'));
+        return Response.json({ stored: stored ?? null });
       }
       case '/put': {
         const { session } = (await req.json()) as { session: SyncedSession };
@@ -42,6 +43,19 @@ export class SessionStore {
       default:
         return new Response('Not found', { status: 404 });
     }
+  }
+
+  /**
+   * Previews are short-lived by design, so drop the ones that can never be acted on
+   * again. Without this they accumulate forever — the session cap below never saw them.
+   */
+  private async sweepPreviews(): Promise<void> {
+    const map = await this.state.storage.list<StoredPreview>({ prefix: 'p:' });
+    const now = Date.now();
+    const dead = [...map.entries()]
+      .filter(([, s]) => s.preview.status === 'executed' || s.preview.status === 'rejected' || now > Date.parse(s.preview.expiresAt))
+      .map(([k]) => k);
+    if (dead.length) await this.state.storage.delete(dead);
   }
 
   /** Keep storage bounded: drop the least recently active sessions past the cap. */

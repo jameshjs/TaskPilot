@@ -14,8 +14,18 @@ import type {
   TaskSession,
   WhatWasIDoing,
   FormField,
+  GuideTarget,
 } from './types';
-import type { ActionPreview, ActionExecuteResponse, IntegrationState, ReconcileResponse } from '../../shared/api';
+import type {
+  ActionPreview,
+  ActionExecuteResponse,
+  IntegrationConnectResponse,
+  IntegrationName,
+  IntegrationState,
+  ReconcileResponse,
+  ToolDescriptor,
+  ToolReadResponse,
+} from '../../shared/api';
 
 /** Every request the side panel (or a content script) can make of the service worker. */
 export interface RpcMap {
@@ -49,6 +59,7 @@ export interface RpcMap {
   'whatWasIDoing': { req: void; res: WhatWasIDoing };
 
   'nav.guide': { req: void; res: NavigatorResult };
+  'nav.guideTarget': { req: void; res: GuideTarget | null };
   'nav.clear': { req: void; res: void };
   'nav.scanFields': { req: void; res: FormField[] };
   'nav.suggest': { req: { field: FormField }; res: InputSuggestion };
@@ -61,9 +72,14 @@ export interface RpcMap {
   'settings.set': { req: Partial<Settings>; res: Settings };
   'sync.now': { req: void; res: { pushed: number; pulled: number } };
   'workflow.status': { req: void; res: { integrations: IntegrationState[] } };
+  'workflow.tools': { req: void; res: { tools: ToolDescriptor[] } };
+  'workflow.connect': { req: { integration: IntegrationName }; res: IntegrationConnectResponse };
   'workflow.reconcile': { req: { notes?: string }; res: ReconcileResponse };
-  'workflow.preview': { req: { action?: 'create_issue' | 'create_pull_request' | 'message_person'; fields?: Record<string, unknown> }; res: ActionPreview };
-  'workflow.execute': { req: { previewId: string; sendDiscord?: boolean }; res: ActionExecuteResponse };
+  'workflow.read': { req: { toolSlug: string; args?: Record<string, unknown> }; res: ToolReadResponse };
+  'workflow.preview': { req: { toolSlug: string; args?: Record<string, unknown> }; res: ActionPreview };
+  'workflow.pending': { req: void; res: ActionPreview | null };
+  'workflow.reject': { req: { previewId: string }; res: void };
+  'workflow.execute': { req: { previewId: string }; res: ActionExecuteResponse };
 }
 
 export type RpcType = keyof RpcMap;

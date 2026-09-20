@@ -1,4 +1,5 @@
-import type { FocusState, HistoryEvent, Settings, TaskSession } from '../shared/types';
+import type { ActionPreview } from '../../shared/api';
+import type { FocusState, GuideTarget, HistoryEvent, Settings, TaskSession } from '../shared/types';
 
 declare const __DEFAULT_API_URL__: string;
 
@@ -116,4 +117,29 @@ export async function getFocus(): Promise<FocusState> {
 
 export async function setFocus(next: FocusState): Promise<void> {
   await chrome.storage.local.set({ focus: next });
+}
+
+/**
+ * What the current highlight is waiting for. Held in storage, not memory: an MV3 service
+ * worker is routinely evicted between pointing at an element and the user clicking it.
+ */
+export async function getGuideTarget(): Promise<GuideTarget | null> {
+  return get<GuideTarget | null>('guideTarget', null);
+}
+
+export async function setGuideTarget(target: GuideTarget | null): Promise<void> {
+  await chrome.storage.local.set({ guideTarget: target });
+}
+
+/**
+ * The external-app action awaiting the user's decision. In storage for the same reason
+ * as {@link getGuideTarget}: the service worker is evicted between preparing an action
+ * and the user deciding on it, and the side panel loses React state on every tab switch.
+ */
+export async function getPendingAction(): Promise<ActionPreview | null> {
+  return get<ActionPreview | null>('pendingAction', null);
+}
+
+export async function setPendingAction(p: ActionPreview | null): Promise<void> {
+  await chrome.storage.local.set({ pendingAction: p });
 }

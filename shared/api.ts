@@ -179,6 +179,7 @@ export type IntegrationName = (typeof INTEGRATION_NAMES)[number];
 export type IntegrationStatus = 'connected' | 'disconnected' | 'demo';
 export type WorkflowAction = 'create_issue' | 'create_pull_request' | 'message_person' | 'ask_user';
 export type EvidenceStatus = 'confirmed' | 'conflicting' | 'missing' | 'stale';
+export type ToolEffect = 'read' | 'write';
 
 export interface IntegrationState { name: IntegrationName; status: IntegrationStatus; account?: string; scopes: string[]; }
 export interface WorkflowEvidence { claim: string; sources: string[]; confidence: number; status: EvidenceStatus; }
@@ -189,14 +190,34 @@ export interface ReconciliationResult {
   recommendation: string;
   nextAction: WorkflowAction;
 }
+/** One allowlisted external-app tool TaskPilot is able to run. */
+export interface ToolDescriptor {
+  slug: string;
+  toolkit: IntegrationName;
+  /** `read` runs automatically; `write` cannot run without an explicit approval. */
+  effect: ToolEffect;
+  label: string;
+  args: Record<string, string>;
+}
+
+/**
+ * A prepared external-app action awaiting the user's decision.
+ *
+ * The approval token is deliberately absent: it is generated and held server-side when
+ * the user approves, so possessing a preview is not enough to execute it.
+ */
 export interface ActionPreview {
   previewId: string;
-  action: Exclude<WorkflowAction, 'ask_user'>;
+  toolSlug: string;
+  effect: ToolEffect;
+  /** Human-readable description of the real-world effect, shown in the confirmation. */
+  label: string;
   provider: IntegrationName;
   title: string;
   body: string;
+  /** e.g. "owner/repo" — what the action will touch. */
   target: string;
-  fields: Record<string, unknown>;
+  args: Record<string, unknown>;
   approvalRequired: boolean;
   status: 'pending' | 'approved' | 'rejected' | 'executed' | 'failed';
   createdAt: string;
@@ -204,12 +225,22 @@ export interface ActionPreview {
   simulated: boolean;
   result?: { url?: string; message?: string };
 }
-export interface IntegrationConnectRequest { integration: IntegrationName; demo?: boolean }
+export interface IntegrationConnectRequest { userId: string; integration: IntegrationName }
+export interface IntegrationConnectResponse { integration: IntegrationName; redirectUrl: string; simulated: boolean }
+export interface IntegrationStatusRequest { userId: string }
 export interface IntegrationStatusResponse { integrations: IntegrationState[] }
+export interface ToolListResponse { tools: ToolDescriptor[] }
 export interface ReconcileRequest { task: string; currentStep?: string; tabs: TabMeta[]; notes?: string; references?: string[] }
 export interface ReconcileResponse extends ReconciliationResult { source: 'ai' | 'demo'; }
-export interface ActionPreviewRequest { task: string; reconciliation: ReconciliationResult; action?: Exclude<WorkflowAction, 'ask_user'>; fields?: Record<string, unknown> }
-export interface ActionExecuteRequest { previewId: string; approvalToken: string; sendDiscord?: boolean }
+/** Read-only tools run straight through; there is nothing to approve. */
+export interface ToolReadRequest { userId: string; toolSlug: string; args?: Record<string, unknown> }
+export interface ToolReadResponse { toolSlug: string; data: unknown; simulated: boolean }
+export interface ActionPreviewRequest { userId: string; task?: string; toolSlug: string; args?: Record<string, unknown> }
+export interface ActionApproveRequest { userId: string; previewId: string }
+/** The token is returned once, here, and must be echoed back to execute. */
+export interface ActionApproveResponse { preview: ActionPreview; approvalToken: string }
+export interface ActionRejectRequest { userId: string; previewId: string }
+export interface ActionExecuteRequest { userId: string; previewId: string; approvalToken: string }
 export interface ActionExecuteResponse { preview: ActionPreview; simulated: boolean }
 
 // ── Sync (Durable Object) ──────────────────────────────────────────────────

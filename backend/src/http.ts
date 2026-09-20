@@ -23,7 +23,7 @@ export function json(data: unknown, env: Env, status = 200): Response {
 }
 
 /** Constant-time compare so a wrong token can't be discovered a byte at a time. */
-function safeEqual(a: string, b: string): boolean {
+export function safeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { rpc } from '../../shared/rpc';
-import { currentStepTitle, progressOf } from '../../shared/sessionLogic';
+import { nextIncompleteStep, progressOf } from '../../shared/sessionLogic';
 import { formatAgo } from '../../shared/tabLogic';
 import type { FocusState, FormField, InputSuggestion, NavigatorResult, ResumeInfo, SessionSummary, TaskSession } from '../../shared/types';
 import { useAction, useToast } from '../hooks';
@@ -95,8 +95,16 @@ function ActiveTask({ session, focus, resume, dismissResume, onFinished, goTabs 
   const [replanNote, setReplanNote] = useState<string | null>(null);
 
   const { done, total } = progressOf(session);
-  const step = currentStepTitle(session);
+  // What the next guide will actually act on — not `currentStep`, which can still point
+  // at a step the user already ticked off.
+  const step = nextIncompleteStep(session)?.step.title ?? null;
   const allDone = total > 0 && done === total;
+
+  // The click that ends a guide reaches the panel as a session change, so read the state
+  // of the step this instruction belonged to rather than trusting the stale result.
+  const navStep = nav?.stepId ? (session.taskPlan.find((p) => p.id === nav.stepId) ?? null) : null;
+  const waiting = nav?.awaitingAct && navStep && !navStep.done ? nav : null;
+  const justDid = nav?.awaitingAct && navStep?.done ? navStep : null;
 
   return (
     <>
@@ -127,48 +135,52 @@ function ActiveTask({ session, focus, resume, dismissResume, onFinished, goTabs 
         <FocusStatus session={session} focus={focus} />
       </Card>
 
-      <Card title="Next action">
+      <Card title="Next action" tone={allDone ? 'ok' : undefined}>
         {allDone ? (
-          <p>🎉 Every step is done. Review your work, then finish the session.</p>
+          <p>🎉 Task complete — every step is done. Review your work, then finish the session.</p>
         ) : (
           <>
             <p className="step">{step ?? session.task}</p>
             <div className="row">
+              {/* Disabled while a guide is in flight, so a double press can't stack two highlights. */}
               <Button
                 variant="primary"
                 busy={busy === 'guide'}
+                title={step ? `Guide me through: ${step}` : undefined}
                 onClick={() => void run('guide', () => rpc('nav.guide')).then((r) => r && setNav(r))}
               >
-                Guide me on this page
+                {step ? <>Guide me: <span className="btn-step ellipsis">{step}</span></> : 'Guide me on this page'}
               </Button>
-              {nav?.highlighted ? (
+              {waiting ? (
                 <Button variant="ghost" onClick={() => void rpc('nav.clear').then(() => setNav(null))}>
                   Clear highlight
                 </Button>
               ) : null}
             </div>
+            <p className="hint">TaskPilot highlights what to do next and waits. Do it on the page and the step ticks itself off — it never clicks or submits for you.</p>
           </>
         )}
         {nav ? (
           <div className={`nav-result ${nav.highlighted ? 'hit' : ''}`}>
-            {nav.action === 'done' ? (
-              <>
-                <p>✅ {nav.instruction}</p>
-                {session.taskPlan[session.currentStep] ? (
-                  <Button onClick={() => void run('toggle', () => rpc('session.toggleStep', { stepId: session.taskPlan[session.currentStep]!.id })).then(() => setNav(null))}>
-                    Mark step done
-                  </Button>
-                ) : null}
-              </>
-            ) : (
-              <>
-                <p>
-                  {nav.highlighted ? '→ ' : ''}
-                  {nav.instruction}
-                </p>
-                {nav.action === 'highlight' ? <span className="hint">confidence {(nav.confidence * 100).toFixed(0)}%</span> : null}
-              </>
-            )}
+            <p>
+              {nav.highlighted ? '→ ' : ''}
+              {nav.instruction}
+            </p>
+            {waiting ? (
+              <span className="hint">Waiting for you to do it on the page…</span>
+            ) : justDid ? (
+              <span className="hint">✓ Done — “{justDid.title}” ticked off.{allDone ? '' : ' Press Guide for the next step.'}</span>
+            ) : nav.action === 'done' && nav.stepTitle ? (
+              <Button
+                busy={busy === 'markDone'}
+                onClick={() => void run('markDone', () => rpc('session.toggleStep', { stepId: session.taskPlan[session.currentStep]!.id })).then(() => setNav(null))}
+              >
+                Mark step done
+              </Button>
+            ) : nav.stepTitle ? (
+              <span className="hint">Still on “{nav.stepTitle}” — press again to look for another way in.</span>
+            ) : null}
+            {nav.action === 'highlight' && !nav.highlighted ? <span className="hint"> confidence {(nav.confidence * 100).toFixed(0)}%</span> : null}
           </div>
         ) : null}
       </Card>

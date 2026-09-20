@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildLocalSummary, createSession, fallbackPlan, mergeReplan, progressLabel, syncStepPointers, activeMsNow, pauseClock } from '../src/shared/sessionLogic';
+import { buildLocalSummary, createSession, fallbackPlan, mergeReplan, nextIncompleteStep, progressLabel, syncStepPointers, activeMsNow, pauseClock } from '../src/shared/sessionLogic';
 
 const plan = {
   title: 'SWE Applications',
@@ -67,5 +67,42 @@ describe('sessions', () => {
     const p = fallbackPlan('apply to three software engineering internships.');
     expect(p.title).toBe('Apply to three software');
     expect(p.steps.length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('nextIncompleteStep', () => {
+  it('picks the step the pointer is on while it is unfinished', () => {
+    const s = createSession('t', plan);
+    s.currentStep = 2;
+    expect(nextIncompleteStep(s)?.index).toBe(2);
+    expect(nextIncompleteStep(s)?.step.title).toBe('Prepare resume');
+  });
+
+  it('skips past a current step that is already done', () => {
+    const s = createSession('t', plan);
+    s.taskPlan[0]!.done = true;
+    s.currentStep = 0; // clicking a finished step title can leave the pointer here
+    expect(nextIncompleteStep(s)?.index).toBe(1);
+  });
+
+  it('finds the first unfinished step even when completions are out of order', () => {
+    const s = createSession('t', plan);
+    s.taskPlan[0]!.done = true;
+    s.taskPlan[1]!.done = true;
+    s.taskPlan[3]!.done = true;
+    s.currentStep = 0;
+    expect(nextIncompleteStep(s)?.step.title).toBe('Prepare resume');
+  });
+
+  it('returns null when the plan is finished, so nothing asks the Navigator again', () => {
+    const s = createSession('t', plan);
+    s.taskPlan.forEach((p) => (p.done = true));
+    syncStepPointers(s);
+    expect(nextIncompleteStep(s)).toBeNull();
+  });
+
+  it('returns null for an empty plan rather than inventing a step', () => {
+    const s = createSession('t', { title: 'Empty', steps: [] });
+    expect(nextIncompleteStep(s)).toBeNull();
   });
 });

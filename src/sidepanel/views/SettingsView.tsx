@@ -45,6 +45,18 @@ export function SettingsView({ settings, reload }: { settings: Settings | undefi
         <div className="row end"><Button variant="primary" onClick={() => save({ profile: draft.profile })}>Save</Button></div>
       </Card>
 
+      <Card title="Connected apps">
+        <p className="hint">
+          GitHub and other apps connect through TaskPilot&rsquo;s Worker. Your account credentials are held by the connected-apps service and
+          never enter the browser or this extension.
+        </p>
+        <p className="hint">
+          Looking something up runs as soon as you ask. Anything that creates, changes, sends or deletes is prepared first, shown to you in
+          full, and only runs after you approve that exact request &mdash; approval covers one run, and TaskPilot only ever uses a fixed list
+          of allowed actions.
+        </p>
+      </Card>
+
       <Card title="Privacy">
         <p className="hint">TaskPilot sends page titles, URLs without query strings, and a short summary of headings — never page text, form values or credentials. Sites listed here are never read or sent.</p>
         <label className="lbl">Excluded sites (one per line)

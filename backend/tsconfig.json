@@ -11,5 +11,5 @@
     "types": ["@cloudflare/workers-types"],
     "isolatedModules": true
   },
-  "include": ["src", "../shared"]
+  "include": ["src", "../shared", "../tests/workflow.test.ts"]
 }

@@ -29,8 +29,8 @@ if (!w.__taskpilot) {
   w.__taskpilot = true;
   const reg = createRegistry();
 
-  const reportLost = (elementId: string) =>
-    void chrome.runtime.sendMessage({ type: 'content.event', event: 'highlight_lost', elementId, url: location.href }).catch(() => undefined);
+  const report = (event: 'highlight_lost' | 'highlight_acted' | 'highlight_dismissed', elementId: string) =>
+    void chrome.runtime.sendMessage({ type: 'content.event', event, elementId, url: location.href }).catch(() => undefined);
 
   const handle = (msg: ContentRequest): unknown => {
     switch (msg.type) {
@@ -41,7 +41,12 @@ if (!w.__taskpilot) {
       case 'cs.highlight': {
         const el = resolve(reg, msg.elementId);
         if (!el) throw new Error('That element is no longer on the page.');
-        showHighlight(el, rectOf, msg.instruction, msg.confidence, () => reportLost(msg.elementId));
+        showHighlight(el, rectOf, msg.instruction, msg.confidence, {
+          onLost: () => report('highlight_lost', msg.elementId),
+          // The user did the thing we pointed at — this is what advances the plan.
+          onAct: () => report('highlight_acted', msg.elementId),
+          onDismiss: () => report('highlight_dismissed', msg.elementId),
+        });
         return true;
       }
       case 'cs.clear':

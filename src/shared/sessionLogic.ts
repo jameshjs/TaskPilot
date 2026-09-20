@@ -71,6 +71,23 @@ export function syncStepPointers(s: TaskSession): void {
   s.currentStep = first === -1 ? s.taskPlan.length : first;
 }
 
+/**
+ * The step a guide should act on.
+ *
+ * Normally that is `currentStep`, but the pointer can sit on a step that is already
+ * ticked — the user can click any step title to make it current, and a replan can mark
+ * one done underneath it. Falling back to the first unfinished step means guidance
+ * follows what is actually left rather than an index that may have gone stale.
+ *
+ * Returns null when every step is done.
+ */
+export function nextIncompleteStep(s: Pick<TaskSession, 'taskPlan' | 'currentStep'>): { index: number; step: PlanStep } | null {
+  const at = s.taskPlan[s.currentStep];
+  if (at && !at.done) return { index: s.currentStep, step: at };
+  const index = s.taskPlan.findIndex((p) => !p.done);
+  return index === -1 ? null : { index, step: s.taskPlan[index]! };
+}
+
 export function currentStepTitle(s: Pick<TaskSession, 'taskPlan' | 'currentStep'>): string | null {
   return s.taskPlan[s.currentStep]?.title ?? null;
 }

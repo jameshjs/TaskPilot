@@ -27,9 +27,11 @@ save and restore. Add the Worker to get the AI behavior.
 cd backend
 npm install
 npx wrangler secret put OPENAI_API_KEY   # deployed
-# for local dev, put it in backend/.dev.vars instead:
+npx wrangler secret put COMPOSIO_API_KEY # optional: connected apps (GitHub)
+# for local dev, put them in backend/.dev.vars instead:
 #   OPENAI_API_KEY=sk-...
 #   TASKPILOT_TOKEN=some-shared-secret
+#   COMPOSIO_API_KEY=...          # omit to run connected apps in demo mode
 npm run dev            # http://localhost:8787
 npm run deploy         # or ship it
 ```
@@ -106,6 +108,9 @@ Hard rules, enforced in code rather than in a prompt:
 - **Does not hard-block distracting sites.** It shows a dismissible card in the
   corner. The overlay host is `pointer-events: none`, so the page underneath
   stays fully usable.
+- **Never changes anything in a connected app without asking.** Reads run on
+  request; every write, send or delete is shown in full and runs only after you
+  approve that exact request, and only from a fixed allowlist of actions.
 
 ### What reaches the model
 
@@ -124,7 +129,7 @@ falls into "Other".
 ## Tests
 
 ```bash
-npm test          # 30 unit tests
+npm test          # 99 unit tests
 npm run typecheck # extension + backend
 ```
 
@@ -158,14 +163,31 @@ employer.
   through the Worker-side adapter. Without a Composio key, the same flow runs
   as an explicitly labelled deterministic demo.
 
-## Engineering workflow demo
+## Connected apps (Composio)
 
-Open TaskPilot → **Actions** → **Analyze task**. The Worker returns evidence
-with confidence and flags conflicts or missing repository information. Select
-an action to preview the exact GitHub or Discord mutation. Execution requires
-the preview id as an approval token; demo mode produces a simulated result and
-never contacts an external provider.
+TaskPilot can act in external apps through the Worker. The first release supports
+**GitHub**. Your provider credentials live with Composio and never enter the browser or
+the extension — the extension only ever opens Composio's hosted sign-in page.
 
-For live Composio execution, configure COMPOSIO_API_KEY and optionally
-COMPOSIO_BASE_URL as Worker secrets/variables. Provider credentials never enter
-the extension.
+Open TaskPilot → **Actions**:
+
+1. **Connect github** — opens the sign-in page in a tab. Composio stores and refreshes
+   the tokens.
+2. **Look something up** — read-only tools (read a repository, list issues, search
+   issues and pull requests) run as soon as you ask, because they change nothing.
+3. **Make a change** — creating an issue or a comment is *prepared* first. TaskPilot
+   shows you the exact request, and nothing is sent until you approve that request.
+
+### The approval rule
+
+Composio's API does not say whether a tool mutates anything, so TaskPilot keeps its own
+allowlist in `backend/src/tools.ts`. Every tool is declared `read` or `write`; anything
+not on the list is refused before a call is made, and anything uncertain counts as a
+write.
+
+Approving a write makes the Worker mint a one-time token that it holds server-side. The
+token is never stored in the browser, covers exactly one run, and a rejected, expired or
+already-executed action cannot run at all. Without `COMPOSIO_API_KEY` the whole flow
+runs as an explicitly labelled simulation that makes no external call.
+
+Set `COMPOSIO_API_KEY` (and optionally `COMPOSIO_BASE_URL`) as Worker secrets/variables.

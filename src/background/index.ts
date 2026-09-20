@@ -1,6 +1,6 @@
 import type { Broadcast, BroadcastName, RpcEnvelope, RpcRequest, RpcResponse, RpcType } from '../shared/rpc';
 import { reportTelemetry } from './api';
-import { clearGuide, guide, insert, scanFields, suggest } from './navigator';
+import { clearGuide, guide, guideTarget, insert, onHighlightActed, onHighlightGone, scanFields, suggest } from './navigator';
 import { focusAction, registerFocusListeners } from './focus';
 import { whatWasIDoing } from './memory';
 import * as sessions from './sessions';
@@ -48,6 +48,7 @@ const handlers: Handlers = {
   whatWasIDoing: () => whatWasIDoing(),
 
   'nav.guide': () => guide(),
+  'nav.guideTarget': () => guideTarget(),
   'nav.clear': () => clearGuide(),
   'nav.scanFields': () => scanFields(),
   'nav.suggest': ({ field }) => suggest(field),
@@ -60,16 +61,29 @@ const handlers: Handlers = {
   'settings.set': (patch) => setSettings(patch),
   'sync.now': () => syncNow(),
   'workflow.status': () => workflow.status(),
+  'workflow.tools': () => workflow.listTools(),
+  'workflow.connect': ({ integration }) => workflow.connect(integration),
   'workflow.reconcile': ({ notes }) => workflow.reconcile(notes),
-  'workflow.preview': ({ action, fields }) => workflow.preview(action, fields),
-  'workflow.execute': ({ previewId, sendDiscord }) => workflow.execute(previewId, sendDiscord),
+  'workflow.read': ({ toolSlug, args }) => workflow.read(toolSlug, args ?? {}),
+  'workflow.preview': ({ toolSlug, args }) => workflow.preview(toolSlug, args ?? {}),
+  'workflow.pending': () => workflow.pending(),
+  'workflow.reject': ({ previewId }) => workflow.reject(previewId),
+  'workflow.execute': ({ previewId }) => workflow.execute(previewId),
 };
 
 // ── Message routing ────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((msg: { type?: string; payload?: unknown; event?: string; [k: string]: unknown }, sender, sendResponse) => {
   if (msg?.type === 'content.event') {
-    if (msg.event === 'highlight_lost') {
+    const tabId = sender.tab?.id;
+    const elementId = String(msg.elementId ?? '');
+    if (msg.event === 'highlight_acted' && tabId != null) {
+      // The user actually did the thing we pointed at — the only signal that advances a step.
+      void onHighlightActed(tabId, elementId);
+    } else if (msg.event === 'highlight_dismissed' && tabId != null) {
+      void onHighlightGone(tabId, elementId);
+    } else if (msg.event === 'highlight_lost') {
+      if (tabId != null) void onHighlightGone(tabId, elementId);
       reportTelemetry('dom_selection_failed', 'Highlighted element disappeared', { reason: 'element_detached' }, { url: String(msg.url ?? '').split(/[?#]/)[0] });
     }
     return false;

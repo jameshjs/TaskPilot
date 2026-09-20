@@ -6,7 +6,7 @@ import { Card, Empty } from '../ui';
 const ICON: Record<HistoryEvent['kind'], string> = {
   session_started: '🚀', tab_added: '📑', step_done: '✅', step_undone: '↩️', plan_updated: '📝',
   drift: '🎬', returned: '🎯', session_saved: '💾', session_restored: '♻️', session_finished: '🏁',
-  tabs_organized: '📁', tabs_closed: '🧹', note: '🗒️',
+  tabs_organized: '📁', tabs_closed: '🧹', action_executed: '⚡', action_rejected: '🚫', note: '🗒️',
 };
 
 const dayLabel = (iso: string): string => {

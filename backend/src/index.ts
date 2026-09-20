@@ -4,6 +4,7 @@ import { authorize, corsHeaders, HttpError, json, readJson } from './http';
 import { SessionStore } from './sessions';
 import { optStr, str as reqStr } from './validate';
 import * as workflow from './workflow';
+import type { StoredPreview } from './workflow';
 
 export { SessionStore };
 
@@ -28,14 +29,24 @@ const ROUTES: Record<string, Handler> = {
     console.warn('taskpilot.telemetry', JSON.stringify({ kind: optStr(body.kind, 40), message: optStr(body.message, 400), tags: body.tags }));
     return { ok: true };
   },
-  '/integrations/status': async (env) => workflow.integrationStatus(env),
+  '/integrations/status': async (env, body) => workflow.integrationStatus(env, body),
   '/integrations/connect': async (env, body) => workflow.connect(env, body),
+  '/tools/list': async () => workflow.tools(),
   '/context/reconcile': async (env, body) => workflow.reconcile(env, body),
+  '/tools/read': async (env, body) => workflow.runRead(env, body),
   '/actions/preview': async (env, body) => {
-    const preview = workflow.preview(env, body);
     const userId = reqStr(body.userId, 'userId', 80);
-    await savePreview(env, userId, preview);
+    const preview = workflow.preview(env, body);
+    await savePreview(env, userId, { preview });
     return preview;
+  },
+  '/actions/approve': async (env, body) => {
+    const userId = reqStr(body.userId, 'userId', 80);
+    return workflow.approve(env, body, (id) => getPreview(env, userId, id), (p) => savePreview(env, userId, p));
+  },
+  '/actions/reject': async (env, body) => {
+    const userId = reqStr(body.userId, 'userId', 80);
+    return workflow.reject(env, body, (id) => getPreview(env, userId, id), (p) => savePreview(env, userId, p));
   },
   '/actions/execute': async (env, body) => {
     const userId = reqStr(body.userId, 'userId', 80);
@@ -43,14 +54,21 @@ const ROUTES: Record<string, Handler> = {
   },
 };
 
-async function savePreview(env: Env, userId: string, preview: import('../../shared/api').ActionPreview): Promise<void> {
+/**
+ * Previews live in the caller's Durable Object, alongside their sessions. Unlike the
+ * previous version these check `res.ok`: a silently dropped write here would mean an
+ * approval that never got recorded.
+ */
+async function savePreview(env: Env, userId: string, stored: StoredPreview): Promise<void> {
   const stub = env.SESSIONS.get(env.SESSIONS.idFromName(userId));
-  await stub.fetch('https://do/preview/put', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(preview) });
+  const res = await stub.fetch('https://do/preview/put', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(stored) });
+  if (!res.ok) throw new HttpError(502, 'Could not save the action preview.');
 }
-async function getPreview(env: Env, userId: string, id: string): Promise<import('../../shared/api').ActionPreview | null> {
+async function getPreview(env: Env, userId: string, id: string): Promise<StoredPreview | null> {
   const stub = env.SESSIONS.get(env.SESSIONS.idFromName(userId));
   const res = await stub.fetch('https://do/preview/get?id=' + encodeURIComponent(id));
-  return (await res.json() as { preview: import('../../shared/api').ActionPreview | null }).preview;
+  if (!res.ok) throw new HttpError(502, 'Could not read the action preview.');
+  return (await res.json() as { stored: StoredPreview | null }).stored;
 }
 
 async function syncCall(env: Env, body: Record<string, unknown>, path: string, payload: unknown): Promise<unknown> {
@@ -86,7 +104,12 @@ const worker: ExportedHandler<Env> = {
     } catch (e) {
       const status = e instanceof HttpError ? e.status : 500;
       const message = e instanceof Error ? e.message : 'Unexpected error';
-      console.error('taskpilot.error', JSON.stringify({ path, ms: Date.now() - started, status, message }));
+      const line = JSON.stringify({ path, ms: Date.now() - started, status, message });
+      // A 4xx is this Worker refusing something on purpose — an unapproved action, an
+      // unknown tool, a bad token. Only a 5xx means the Worker itself failed, so only
+      // that should read as an error here or reach Sentry.
+      if (status >= 500) console.error('taskpilot.error', line);
+      else console.log('taskpilot.refused', line);
       return json({ error: message }, env, status);
     }
   },

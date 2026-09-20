@@ -114,7 +114,9 @@ export interface HistoryEvent {
     | 'session_finished'
     | 'tabs_organized'
     | 'tabs_closed'
-    | 'note';
+    | 'action_executed'
+  | 'action_rejected'
+  | 'note';
   text: string;
 }
 
@@ -176,6 +178,23 @@ export interface NavigatorResult {
   instruction: string;
   confidence: number;
   highlighted: boolean;
+  /** The plan step this guide is for. */
+  stepId: string | null;
+  stepTitle: string | null;
+  /** A highlight is up and TaskPilot is waiting for the user to act on it. */
+  awaitingAct: boolean;
+  /** Every step in the plan is done. */
+  allDone: boolean;
+}
+
+/** The element a guide is currently waiting for the user to act on. */
+export interface GuideTarget {
+  tabId: number;
+  elementId: string;
+  /** The plan step this highlight is for — completed only once the user acts. */
+  stepId: string;
+  instruction: string;
+  at: string;
 }
 
 export interface FormField {

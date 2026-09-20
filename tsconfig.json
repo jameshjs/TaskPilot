@@ -12,6 +12,8 @@
     "types": ["chrome", "vitest/globals"],
     "isolatedModules": true
   },
-  "include": ["src", "shared", "tests", "build.d.ts"]
-  ,"exclude": ["tests/workflow.test.ts"]
+  "include": ["src", "shared", "tests", "build.d.ts"],
+  // Backend tests import Worker code, whose globals (Request/Response/fetch) clash with
+  // the DOM lib above. They are typechecked by backend/tsconfig.json instead.
+  "exclude": ["tests/workflow.test.ts"]
 }

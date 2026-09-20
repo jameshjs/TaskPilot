@@ -1,24 +1,74 @@
-import type { ActionPreview, ActionPreviewRequest, ReconcileRequest, ReconcileResponse, WorkflowAction } from '../../shared/api';
-import { arr, ask, enumOf, num, obj, str } from './openai';
-import { ComposioAdapter } from './composio';
+/**
+ * External-app actions: discover, prepare, approve, run.
+ *
+ * The rule the whole module exists to enforce: a `read` tool runs on request, a `write`
+ * tool cannot run until a human has approved that exact prepared action and the server
+ * has recorded it. Approval is a secret this Worker generates — not, as before, the
+ * preview id echoed back to itself.
+ */
+import type {
+  ActionPreview,
+  IntegrationState,
+  ReconcileRequest,
+  ReconcileResponse,
+  ToolDescriptor,
+  WorkflowAction,
+} from '../../shared/api';
+import { activeConnectionId, createConnectLink, executeTool, isLive, listConnections } from './composio';
 import type { Env } from './env';
-import { HttpError } from './http';
+import { HttpError, safeEqual } from './http';
+import { arr, ask, enumOf, num, obj, str } from './openai';
+import { describeTarget, listTools, SUPPORTED_TOOLKITS, toolkitName, toolSpec, validateArgs } from './tools';
 import { arrayOf, clamp01, optStr, str as reqStr } from './validate';
+
+/** 15 minutes: long enough to read a confirmation, short enough that a stale one dies. */
+const PREVIEW_TTL_MS = 15 * 60_000;
+
+/**
+ * How a prepared action is held server-side. The approval token never leaves this
+ * boundary except once, in the response to `approve`.
+ */
+export interface StoredPreview {
+  preview: ActionPreview;
+  approvalToken?: string;
+}
+
+export type GetPreview = (id: string) => Promise<StoredPreview | null>;
+export type SavePreview = (p: StoredPreview) => Promise<void>;
+
+// ── Connections ────────────────────────────────────────────────────────────
+
+export async function integrationStatus(env: Env, body: Record<string, unknown>): Promise<{ integrations: IntegrationState[] }> {
+  const userId = reqStr(body.userId, 'userId', 80);
+  return { integrations: await listConnections(env, userId, SUPPORTED_TOOLKITS) };
+}
+
+export async function connect(env: Env, body: Record<string, unknown>) {
+  const userId = reqStr(body.userId, 'userId', 80);
+  const integration = toolkitName(body.integration);
+  const { redirectUrl } = await createConnectLink(env, userId, integration);
+  return { integration, redirectUrl, simulated: !isLive(env) };
+}
+
+export function tools(): { tools: ToolDescriptor[] } {
+  return { tools: listTools().map((t) => ({ slug: t.slug, toolkit: t.toolkit, effect: t.effect, label: t.label, args: t.args })) };
+}
+
+// ── Context reconciliation (unchanged behavior) ────────────────────────────
 
 const DEMO_FACTS = [
   { claim: 'Authentication failure is reproducible in the browser workflow.', sources: ['Chrome tab: Auth bug report'], confidence: 0.93, status: 'confirmed' as const },
   { claim: 'Expected token refresh behavior differs between sources.', sources: ['GitHub issue #42', 'Discord discussion'], confidence: 0.84, status: 'conflicting' as const },
   { claim: 'The target repository has not been explicitly selected.', sources: ['Task context'], confidence: 0.99, status: 'missing' as const },
 ];
-export async function integrationStatus(env: Env) { return { integrations: new ComposioAdapter(env).status() }; }
-export async function connect(env: Env, body: Record<string, unknown>) {
-  const integration = body.integration === 'discord' ? 'discord' : 'github';
-  return { integration, ...new ComposioAdapter(env).status().find((x) => x.name === integration), authorizationUrl: env.COMPOSIO_API_KEY ? undefined : 'demo://connect' };
-}
+
 export async function reconcile(env: Env, body: Record<string, unknown>): Promise<ReconcileResponse> {
   const input = body as unknown as ReconcileRequest;
   const task = reqStr(input.task, 'task', 500);
-  const tabs = arrayOf(input.tabs, 'tabs', 80, (x) => x as { id: number; title: string; url: string; summary?: string });
+  const tabs = arrayOf(input.tabs, 'tabs', 80, (x) => {
+    const t = (x ?? {}) as Record<string, unknown>;
+    return { title: (typeof t.title === 'string' ? t.title : '').slice(0, 160), url: (typeof t.url === 'string' ? t.url : '').slice(0, 300), summary: optStr(t.summary, 400) };
+  });
   if (!env.OPENAI_API_KEY) return { facts: DEMO_FACTS, conflicts: ['GitHub and Discord describe token refresh differently.'], missing: ['repository'], recommendation: 'Confirm the repository, then create a GitHub issue and notify the likely owner in Discord.', nextAction: 'ask_user', source: 'demo' };
   return ask<ReconcileResponse>(env, {
     system: 'You reconcile messy engineering context. Identify duplicates, stale claims, conflicts and missing fields. Never invent repository names, people, branches or facts. If a mutation target is ambiguous, choose ask_user.',
@@ -31,27 +81,119 @@ export async function reconcile(env: Env, body: Record<string, unknown>): Promis
     },
   });
 }
-export function preview(env: Env, body: Record<string, unknown>): ActionPreview {
-  const input = body as unknown as ActionPreviewRequest;
-  const reconciliation = input.reconciliation;
-  const action = input.action ?? (reconciliation.nextAction === 'ask_user' ? 'create_issue' : reconciliation.nextAction);
-  if (reconciliation.nextAction === 'ask_user' && !input.action) throw new HttpError(422, 'Resolve missing or conflicting context before creating an action preview');
-  const rawFields = input.fields ?? {};
-  const fields: Record<string, unknown> = { ...rawFields, evidence: reconciliation.facts, conflicts: reconciliation.conflicts };
-  const provider = action === 'message_person' ? 'discord' : 'github';
-  const title = String(fields.title || (action === 'message_person' ? 'TaskPilot context update' : 'Authentication workflow issue'));
-  const bodyText = String(fields.body || reconciliation.recommendation);
-  const now = Date.now();
-  return { previewId: crypto.randomUUID(), action, provider, title, body: bodyText, target: String(fields.target || (provider === 'discord' ? 'Unresolved recipient' : 'Unresolved repository')), fields, approvalRequired: true, status: 'pending', createdAt: new Date(now).toISOString(), expiresAt: new Date(now + 15 * 60_000).toISOString(), simulated: !env.COMPOSIO_API_KEY };
+
+// ── Running tools ──────────────────────────────────────────────────────────
+
+/** A read needs no approval, so it never becomes a preview. Writes are refused here. */
+export async function runRead(env: Env, body: Record<string, unknown>) {
+  const userId = reqStr(body.userId, 'userId', 80);
+  const spec = toolSpec(body.toolSlug);
+  if (spec.effect !== 'read') throw new HttpError(400, 'That action changes something, so it has to be previewed and approved first.');
+  const args = validateArgs(spec, body.args);
+  const connectedAccountId = (await activeConnectionId(env, userId, spec.toolkit)) ?? undefined;
+  if (isLive(env) && !connectedAccountId) throw new HttpError(409, `Connect your ${spec.toolkit} account first.`);
+
+  const run = await executeTool(env, { spec, userId, args, connectedAccountId });
+  return { toolSlug: spec.slug, data: run.data, simulated: !isLive(env) };
 }
-export async function execute(env: Env, body: Record<string, unknown>, getPreview: (id: string) => Promise<ActionPreview | null>, savePreview: (p: ActionPreview) => Promise<void>) {
+
+/**
+ * Prepare a write for the user's decision. Nothing reaches the provider here — this
+ * only records what *would* happen, in the exact shape it would happen.
+ */
+export function preview(env: Env, body: Record<string, unknown>): ActionPreview {
+  const spec = toolSpec(body.toolSlug);
+  const args = validateArgs(spec, body.args);
+  const now = Date.now();
+  return {
+    previewId: crypto.randomUUID(),
+    toolSlug: spec.slug,
+    effect: spec.effect,
+    label: spec.label,
+    provider: spec.toolkit,
+    title: typeof args.title === 'string' ? args.title : spec.label,
+    body: typeof args.body === 'string' ? args.body : '',
+    target: describeTarget(spec, args),
+    args,
+    approvalRequired: spec.effect === 'write',
+    status: 'pending',
+    createdAt: new Date(now).toISOString(),
+    expiresAt: new Date(now + PREVIEW_TTL_MS).toISOString(),
+    simulated: !isLive(env),
+  };
+}
+
+function assertUsable(stored: StoredPreview | null): StoredPreview {
+  if (!stored) throw new HttpError(404, 'Action preview not found');
+  if (Date.now() > Date.parse(stored.preview.expiresAt)) throw new HttpError(410, 'Action preview expired');
+  return stored;
+}
+
+/**
+ * The user said yes. Mint a single-use secret and record the approval, so `execute`
+ * can verify a human decided this rather than merely that a preview exists.
+ */
+export async function approve(env: Env, body: Record<string, unknown>, getPreview: GetPreview, savePreview: SavePreview) {
   const id = reqStr(body.previewId, 'previewId', 80);
-  if (body.approvalToken !== id) throw new HttpError(403, 'Approval token does not match this preview');
-  const p = await getPreview(id);
-  if (!p) throw new HttpError(404, 'Action preview not found');
-  if (p.status !== 'pending') throw new HttpError(409, 'Preview is already ' + p.status);
-  if (Date.now() > Date.parse(p.expiresAt)) throw new HttpError(410, 'Action preview expired');
-  const result = await new ComposioAdapter(env).execute(p, body.sendDiscord === true);
-  await savePreview(result);
-  return { preview: result, simulated: result.simulated };
+  const stored = assertUsable(await getPreview(id));
+  if (stored.preview.status !== 'pending') throw new HttpError(409, 'Preview is already ' + stored.preview.status);
+
+  const approvalToken = crypto.randomUUID();
+  const preview: ActionPreview = { ...stored.preview, status: 'approved' };
+  await savePreview({ preview, approvalToken });
+  return { preview, approvalToken };
+}
+
+export async function reject(env: Env, body: Record<string, unknown>, getPreview: GetPreview, savePreview: SavePreview) {
+  const id = reqStr(body.previewId, 'previewId', 80);
+  const stored = await getPreview(id);
+  if (!stored) throw new HttpError(404, 'Action preview not found');
+  if (stored.preview.status === 'executed') throw new HttpError(409, 'Preview is already executed');
+
+  const preview: ActionPreview = { ...stored.preview, status: 'rejected' };
+  await savePreview({ preview });
+  return { preview };
+}
+
+/**
+ * Run an approved write.
+ *
+ * Every guard here is load-bearing: the preview must exist, must not have expired, must
+ * be in `approved` (not merely `pending`), and the caller must present the token minted
+ * at approval time. A failure is recorded as `failed` so it cannot be retried forever.
+ */
+export async function execute(env: Env, body: Record<string, unknown>, getPreview: GetPreview, savePreview: SavePreview) {
+  const id = reqStr(body.previewId, 'previewId', 80);
+  const token = reqStr(body.approvalToken, 'approvalToken', 120);
+  const userId = reqStr(body.userId, 'userId', 80);
+  const stored = assertUsable(await getPreview(id));
+
+  if (stored.preview.status !== 'approved') {
+    throw new HttpError(stored.preview.status === 'pending' ? 403 : 409, stored.preview.status === 'pending' ? 'This action has not been approved.' : 'Preview is already ' + stored.preview.status);
+  }
+  if (!stored.approvalToken || !safeEqual(token, stored.approvalToken)) throw new HttpError(403, 'Approval token does not match this preview');
+
+  const spec = toolSpec(stored.preview.toolSlug);
+  const connectedAccountId = (await activeConnectionId(env, userId, spec.toolkit)) ?? undefined;
+  if (isLive(env) && !connectedAccountId) throw new HttpError(409, `Connect your ${spec.toolkit} account first.`);
+
+  try {
+    const run = await executeTool(env, { spec, userId, args: stored.preview.args, connectedAccountId });
+    const result = resultOf(run.data);
+    // Token dropped: an approval is good for exactly one execution.
+    const preview: ActionPreview = { ...stored.preview, status: 'executed', simulated: !isLive(env), result };
+    await savePreview({ preview });
+    return { preview, simulated: preview.simulated };
+  } catch (e) {
+    await savePreview({ preview: { ...stored.preview, status: 'failed' } });
+    throw e;
+  }
+}
+
+/** Pull the couple of fields the side panel shows out of an arbitrary tool response. */
+function resultOf(data: unknown): { url?: string; message?: string } {
+  const d = (data ?? {}) as Record<string, unknown>;
+  const url = typeof d.html_url === 'string' ? d.html_url : typeof d.url === 'string' ? d.url : undefined;
+  const message = typeof d.message === 'string' ? d.message : typeof d.title === 'string' ? d.title : undefined;
+  return { ...(url ? { url } : {}), ...(message ? { message } : {}) };
 }

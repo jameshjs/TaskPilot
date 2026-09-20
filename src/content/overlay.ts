@@ -72,14 +72,49 @@ export function clearHighlight(): void {
   highlight = null;
 }
 
+/**
+ * What the user has to do to this element for the instruction to count as carried out.
+ *
+ * A click on a text field or a `select` only puts the caret in it or opens the dropdown —
+ * treating that as "done" would tick off "fill in your name" the moment they clicked the
+ * box. Those wait for the value to actually change instead.
+ */
+export function actSignalFor(el: Element): 'click' | 'change' {
+  const tag = el.tagName.toLowerCase();
+  if (tag === 'textarea' || tag === 'select') return 'change';
+  if (tag !== 'input') return 'click';
+  const type = (el.getAttribute('type') ?? 'text').toLowerCase();
+  // Checkboxes, radios and the button-like inputs are done by clicking them.
+  return ['checkbox', 'radio', 'button', 'submit', 'reset', 'image', 'file'].includes(type) ? 'click' : 'change';
+}
+
+/**
+ * Only a real user gesture advances the plan. Anything the page dispatched itself — a
+ * script, an analytics shim, a synthesized click — carries `isTrusted: false`, and
+ * counting it would let a page tick the user's plan off on its own.
+ */
+export const isUserGesture = (e: Event): boolean => e.isTrusted === true;
+
+export interface HighlightHandlers {
+  /** The element left the page before the user could act on it. */
+  onLost: () => void;
+  /** The user actually did the thing we pointed at. */
+  onAct: () => void;
+  /** The user waved the highlight away instead. */
+  onDismiss: () => void;
+  /** What counts as a user gesture. Injectable because `isTrusted` cannot be faked in a test DOM. */
+  trusts?: (e: Event) => boolean;
+}
+
 export function showHighlight(
   target: Element,
   rectOf: (el: Element) => DOMRect,
   instruction: string,
   confidence: number,
-  onLost: () => void,
+  handlers: HighlightHandlers,
 ): void {
   clearHighlight();
+  const { onLost, onAct, onDismiss, trusts = isUserGesture } = handlers;
   const r = root();
   const ring = text('div', confidence < 0.7 ? 'ring unsure' : 'ring', '');
   const tip = document.createElement('div');
@@ -91,19 +126,33 @@ export function showHighlight(
   const close = document.createElement('button');
   close.textContent = '✕';
   close.title = 'Dismiss';
-  close.addEventListener('click', clearHighlight);
+  close.addEventListener('click', () => {
+    clearHighlight();
+    onDismiss();
+  });
   tip.append(label, close);
   r.append(ring, tip);
 
-  const dismiss = (e: Event) => {
-    if (e instanceof KeyboardEvent && e.key !== 'Escape') return;
+  const signal = actSignalFor(target);
+
+  const acted = (e: Event) => {
+    if (!trusts(e)) return;
     clearHighlight();
+    onAct();
   };
-  target.addEventListener('click', dismiss, { once: true, capture: true });
-  window.addEventListener('keydown', dismiss);
+  // Capture phase: the page may stop propagation, and a click that navigates tears this
+  // frame down, so we report before the default action runs.
+  target.addEventListener(signal, acted, { capture: true });
+
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape') return;
+    clearHighlight();
+    onDismiss();
+  };
+  window.addEventListener('keydown', onKey);
   const cleanup = () => {
-    target.removeEventListener('click', dismiss, { capture: true });
-    window.removeEventListener('keydown', dismiss);
+    target.removeEventListener(signal, acted, { capture: true });
+    window.removeEventListener('keydown', onKey);
   };
 
   target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });

@@ -323,6 +323,28 @@ export async function toggleStep(stepId: string): Promise<TaskSession> {
   return s;
 }
 
+/**
+ * Tick one step off by id and move the pointer to the next unfinished step.
+ *
+ * By id rather than index because the session can change while a highlight is up, and
+ * returning null when the step was already done keeps a repeated click from logging the
+ * same completion twice. `syncStepPointers` rebuilds `completedSteps` from the plan, so
+ * an id can never land in it twice either.
+ */
+export async function completeStep(stepId: string): Promise<{ session: TaskSession; completed: string; allDone: boolean } | null> {
+  let completed: string | null = null;
+  const s = await updateActiveSession((x) => {
+    const step = x.taskPlan.find((p) => p.id === stepId);
+    if (!step || step.done) return;
+    step.done = true;
+    completed = step.title;
+    syncStepPointers(x);
+  });
+  if (!completed) return null;
+  await logEvent('step_done', `Completed: ${completed}`, s.sessionId);
+  return { session: s, completed, allDone: s.taskPlan.every((p) => p.done) };
+}
+
 export async function setStep(index: number): Promise<TaskSession> {
   return updateActiveSession((x) => {
     if (index < 0 || index >= x.taskPlan.length) throw new Error('No such step.');
