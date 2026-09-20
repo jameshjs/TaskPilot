@@ -13,13 +13,13 @@ import { TaskView } from './views/TaskView';
 import './main.css';
 
 type Tab = 'task' | 'tabs' | 'sessions' | 'actions' | 'history' | 'settings';
-const TABS: { id: Tab; label: string; icon: string }[] = [
-  { id: 'task', label: 'Task', icon: '🎯' },
-  { id: 'tabs', label: 'Tabs', icon: '🗂' },
-  { id: 'sessions', label: 'Sessions', icon: '💾' },
-  { id: 'actions', label: 'Actions', icon: '⚡' },
-  { id: 'history', label: 'History', icon: '🕘' },
-  { id: 'settings', label: 'Settings', icon: '⚙️' },
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'task', label: 'Focus' },
+  { id: 'tabs', label: 'Workspace' },
+  { id: 'sessions', label: 'Saved' },
+  { id: 'actions', label: 'Actions' },
+  { id: 'history', label: 'History' },
+  { id: 'settings', label: 'Settings' },
 ];
 
 function App() {
@@ -43,18 +43,19 @@ function App() {
     <div className="app">
       <header className="top">
         <div className="brand">
-          <span className="logo" aria-hidden>✈</span>
+          <span className="logo" aria-hidden>✦</span>
           <div>
             <strong>TaskPilot</strong>
-            <span className="sub">{active ? `${active.emoji} ${active.title}` : 'No active task'}</span>
+            <span className="sub">{active ? `${active.emoji} ${active.title}` : 'A calmer way to get things done'}</span>
           </div>
         </div>
+        <span className="status-dot" aria-label="TaskPilot is ready" title="TaskPilot is ready" />
       </header>
 
       <nav className="tabs-nav" role="tablist">
         {TABS.map((t) => (
           <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'on' : ''} onClick={() => setTab(t.id)}>
-            <span aria-hidden>{t.icon}</span> {t.label}
+            {t.label}
           </button>
         ))}
       </nav>
