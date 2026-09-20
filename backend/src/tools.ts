@@ -63,10 +63,31 @@ const SPECS = [
     // Composio rejects the call outright without calendarId ("Following fields are
     // missing"), and nobody wants to type "primary" into a form to see their own diary.
     defaults: { calendarId: 'primary' },
-    // Google refuses orderBy=startTime unless the recurring-event expansion is on:
-    // "The requested ordering is not available for the particular query." The two are
-    // not independent knobs, so don't make the caller discover that via a 502.
-    normalize: (args) => (args.orderBy === 'startTime' ? { ...args, singleEvents: 'true' } : args),
+    normalize: (args) => {
+      const out = { ...args };
+
+      // Google refuses orderBy=startTime unless the recurring-event expansion is on:
+      // "The requested ordering is not available for the particular query." The two are
+      // not independent knobs, so don't make the caller discover that via a 502.
+      if (out.orderBy === 'startTime') out.singleEvents = 'true';
+
+      /**
+       * Always send an explicit window.
+       *
+       * Composio's schema for this tool carries hardcoded literal defaults from 2025
+       * (timeMin 2025-08-25, timeMax 2025-09-01), and with timeMax omitted the effective
+       * upper bound lands around the current moment — so a bare lookup returned only
+       * events that had already happened. "List calendar events" means the ones coming
+       * up, so default to a week ahead and never leave the bound to the provider.
+       */
+      const now = Date.now();
+      if (!out.timeMin) out.timeMin = new Date(now).toISOString();
+      if (!out.timeMax) {
+        const from = typeof out.timeMin === 'string' ? Date.parse(out.timeMin) : NaN;
+        out.timeMax = new Date((Number.isNaN(from) ? now : from) + 7 * 86_400_000).toISOString();
+      }
+      return out;
+    },
   },
   {
     slug: 'GMAIL_FETCH_EMAILS',

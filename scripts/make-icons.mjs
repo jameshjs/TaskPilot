@@ -1,4 +1,13 @@
 // Generates simple gradient "paper plane" PNG icons with no dependencies.
+//
+// Chrome draws these in the toolbar and in the side panel's own title bar, so this file is
+// the only way to change that mark — no CSS reaches Chrome's chrome.
+//
+// The geometry is deliberately untouched from the original: a scalloped squircle (a disc
+// unioned with an inset square) carrying a white paper plane cut from two overlapping
+// triangles. Only the gradient changed, from purple to the palette's green. Anti-aliasing
+// was tried and reverted: at 16-32px the hard edges read crisper, while partial alpha on
+// the scalloped corners turns them into fuzzy spikes.
 import fs from 'node:fs';
 import zlib from 'node:zlib';
 
@@ -28,7 +37,8 @@ function png(size) {
       const r = Math.hypot(x - S / 2, y - S / 2), R = S / 2;
       const inside = r < R * 0.98 || (Math.abs(x - S / 2) < R * 0.85 && Math.abs(y - S / 2) < R * 0.85 && r < R * 1.1);
       const t = (x + y) / (2 * S);
-      let px = [Math.round(109 + 40 * t), Math.round(94 - 20 * t), Math.round(252 - 30 * t), inside ? 255 : 0];
+      // --green #1F7A1F to --green-deep #175E17, tracking src/sidepanel/main.css.
+      let px = [Math.round(31 - 8 * t), Math.round(122 - 28 * t), Math.round(31 - 8 * t), inside ? 255 : 0];
       const plane = inTri(x, y, [S * 0.2, S * 0.5], [S * 0.8, S * 0.25], [S * 0.5, S * 0.8]);
       const notch = inTri(x, y, [S * 0.42, S * 0.55], [S * 0.8, S * 0.25], [S * 0.5, S * 0.8]);
       if (inside && plane && !notch) px = [255, 255, 255, 255];

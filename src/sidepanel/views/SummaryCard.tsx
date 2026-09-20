@@ -1,4 +1,5 @@
 import type { SessionSummary } from '../../shared/types';
+import { Icon } from '../icons';
 import { Card } from '../ui';
 
 export function SummaryCard({ summary, onClose }: { summary: SessionSummary; onClose?: () => void }) {
@@ -17,7 +18,9 @@ export function SummaryCard({ summary, onClose }: { summary: SessionSummary; onC
             <dd>
               <ul className="plain">
                 {summary.completed.map((c, i) => (
-                  <li key={i}>✓ {c}</li>
+                  <li key={i}>
+                    <Icon name="check" size={13} /> {c}
+                  </li>
                 ))}
               </ul>
             </dd>

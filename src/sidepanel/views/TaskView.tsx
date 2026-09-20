@@ -5,12 +5,18 @@ import { formatAgo } from '../../shared/tabLogic';
 import type { FocusState, FormField, InputSuggestion, NavigatorResult, ResumeInfo, SessionSummary, TaskSession } from '../../shared/types';
 import type { IntegrationName } from '../../../shared/api';
 import { useAction, useLoad, useToast } from '../hooks';
+import { Icon } from '../icons';
 import { Button, Card, Chip, Confirm, Empty, Progress } from '../ui';
 import { SummaryCard } from './SummaryCard';
 import { WhatWasIDoingCard } from './WhatWasIDoingCard';
 
-/** Source attribution, so the UI can name where a plan's facts came from. */
-const SOURCE_ICON: Record<IntegrationName, string> = { github: '🐙', googlecalendar: '📅', gmail: '✉️', discord: '💬' };
+/**
+ * Source attribution, so the UI can name where a plan's facts came from.
+ *
+ * Names only. These appear inside sentences, and the design spec rules emoji out of the
+ * UI — an inline SVG inside a joined string would need the sentence rebuilt as nodes for
+ * no real gain, since "Calendar · Gmail" already reads clearly.
+ */
 const SOURCE_LABEL: Record<IntegrationName, string> = { github: 'GitHub', googlecalendar: 'Calendar', gmail: 'Gmail', discord: 'Discord' };
 
 interface Props {
@@ -63,7 +69,7 @@ function StartTask({ saved, finished, dismissFinished, onRestored }: Props) {
         {connected.length ? (
           <p className="hint">
             {busy === 'start' ? 'Reading ' : 'Will read '}
-            {connected.map((n) => `${SOURCE_ICON[n]} ${SOURCE_LABEL[n]}`).join(' · ')} to ground the plan in what is actually on your plate.
+            {connected.map((n) => SOURCE_LABEL[n]).join(' · ')} to ground the plan in what is actually on your plate.
           </p>
         ) : (
           <p className="hint">TaskPilot will plan the steps, pull the relevant tabs into a group, and keep you on track.</p>
@@ -152,7 +158,9 @@ function ActiveTask({ session, focus, resume, dismissResume, onFinished, goTabs 
 
       <Card title="Next action" tone={allDone ? 'ok' : undefined}>
         {allDone ? (
-          <p>🎉 Task complete — every step is done. Review your work, then finish the session.</p>
+          <p>
+            <Icon name="check" size={14} /> Task complete — every step is done. Review your work, then finish the session.
+          </p>
         ) : (
           <>
             <p className="step">{step ?? session.task}</p>
@@ -178,13 +186,16 @@ function ActiveTask({ session, focus, resume, dismissResume, onFinished, goTabs 
         {nav ? (
           <div className={`nav-result ${nav.highlighted ? 'hit' : ''}`}>
             <p>
-              {nav.highlighted ? '→ ' : ''}
+              {nav.highlighted ? <Icon name="target" size={13} /> : null}
+              {nav.highlighted ? ' ' : ''}
               {nav.instruction}
             </p>
             {waiting ? (
               <span className="hint">Waiting for you to do it on the page…</span>
             ) : justDid ? (
-              <span className="hint">✓ Done — “{justDid.title}” ticked off.{allDone ? '' : ' Press Guide for the next step.'}</span>
+              <span className="hint">
+                <Icon name="check" size={13} /> Done — “{justDid.title}” ticked off.{allDone ? '' : ' Press Guide for the next step.'}
+              </span>
             ) : nav.action === 'done' && nav.stepTitle ? (
               <Button
                 busy={busy === 'markDone'}
@@ -224,7 +235,7 @@ function ActiveTask({ session, focus, resume, dismissResume, onFinished, goTabs 
         ) : null}
         {session.contextSources?.length ? (
           <p className="hint">
-            Built from {session.contextSources.map((n) => `${SOURCE_ICON[n]} ${SOURCE_LABEL[n]}`).join(' · ')} via Composio.
+            Built from {session.contextSources.map((n) => SOURCE_LABEL[n]).join(' · ')} via Composio.
           </p>
         ) : null}
         {session.taskPlan.length === 0 ? (
@@ -247,7 +258,7 @@ function ActiveTask({ session, focus, resume, dismissResume, onFinished, goTabs 
         title="Workspace"
         right={
           <Button variant="ghost" onClick={() => goTabs(true)}>
-            ✨ Organize workspace
+            <Icon name="layers" size={14} /> Organize workspace
           </Button>
         }
       >
@@ -276,7 +287,7 @@ function ActiveTask({ session, focus, resume, dismissResume, onFinished, goTabs 
 
       <div className="footer-actions">
         <Button busy={busy === 'save'} onClick={() => void run('save', () => rpc('session.save', {}), (s) => `Saved ${s.tabs.length} tabs · ${done} / ${total} steps`)}>
-          💾 Save session
+          <Icon name="archive" size={14} /> Save session
         </Button>
         <Button onClick={() => setConfirm('saveClose')}>Save &amp; close tabs</Button>
         <Button onClick={() => void run('pause', () => rpc('session.pause', { paused: !session.paused }))}>{session.paused ? '▶ Resume focus' : '⏸ Pause task'}</Button>
@@ -347,7 +358,13 @@ function FocusStatus({ session, focus }: { session: TaskSession; focus: FocusSta
       </div>
     );
   }
-  if (status === 'on_task') return <div className="focus ok">✓ On task{focus?.pageTitle ? ` — ${focus.pageTitle}` : ''}</div>;
+  if (status === 'on_task') {
+    return (
+      <div className="focus ok">
+        <Icon name="check" size={14} /> On task{focus?.pageTitle ? ` — ${focus.pageTitle}` : ''}
+      </div>
+    );
+  }
   return <div className="focus idle">Focus check runs as you browse.</div>;
 }
 

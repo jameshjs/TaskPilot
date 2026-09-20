@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { rpc } from '../shared/rpc';
 import type { ResumeInfo, SessionSummary } from '../shared/types';
 import { ToastProvider, useLoad } from './hooks';
+import { Icon, type IconName } from './icons';
 import { initTelemetry } from './telemetry';
 import { HistoryView } from './views/HistoryView';
 import { ActionsView } from './views/ActionsView';
@@ -13,13 +14,14 @@ import { TaskView } from './views/TaskView';
 import './main.css';
 
 type Tab = 'task' | 'tabs' | 'sessions' | 'actions' | 'history' | 'settings';
-const TABS: { id: Tab; label: string; icon: string }[] = [
-  { id: 'task', label: 'Task', icon: '🎯' },
-  { id: 'tabs', label: 'Tabs', icon: '🗂' },
-  { id: 'sessions', label: 'Sessions', icon: '💾' },
-  { id: 'actions', label: 'Actions', icon: '⚡' },
-  { id: 'history', label: 'History', icon: '🕘' },
-  { id: 'settings', label: 'Settings', icon: '⚙️' },
+/** Lucide icons rather than emoji — the design spec rules emoji out of the UI entirely. */
+const TABS: { id: Tab; label: string; icon: IconName }[] = [
+  { id: 'task', label: 'Task', icon: 'target' },
+  { id: 'tabs', label: 'Tabs', icon: 'layers' },
+  { id: 'sessions', label: 'Sessions', icon: 'archive' },
+  { id: 'actions', label: 'Actions', icon: 'zap' },
+  { id: 'history', label: 'History', icon: 'clock' },
+  { id: 'settings', label: 'Settings', icon: 'settings' },
 ];
 
 function App() {
@@ -43,7 +45,10 @@ function App() {
     <div className="app">
       <header className="top">
         <div className="brand">
-          <span className="logo" aria-hidden>✈</span>
+          {/* A leaf in an organic blob, replacing the plane glyph. */}
+          <span className="logo">
+            <Icon name="leaf" size={18} />
+          </span>
           <div>
             <strong>TaskPilot</strong>
             <span className="sub">{active ? `${active.emoji} ${active.title}` : 'No active task'}</span>
@@ -54,7 +59,8 @@ function App() {
       <nav className="tabs-nav" role="tablist">
         {TABS.map((t) => (
           <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'on' : ''} onClick={() => setTab(t.id)}>
-            <span aria-hidden>{t.icon}</span> {t.label}
+            <Icon name={t.icon} size={15} />
+            {t.label}
           </button>
         ))}
       </nav>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import type { ContextItem, IntegrationName, ToolReadResponse } from '../../../shared/api';
+import type { ContextItem, ToolReadResponse } from '../../../shared/api';
+import { Icon, SOURCE_ICON } from '../icons';
 import { Chip } from '../ui';
 
 /**
@@ -11,7 +12,7 @@ import { Chip } from '../ui';
  * shape we failed to recognise still has to be inspectable.
  */
 
-const ICON: Record<IntegrationName, string> = { github: '🐙', googlecalendar: '📅', gmail: '✉️', discord: '💬' };
+
 
 /**
  * Provider timestamps arrive in whatever format the provider likes — RFC3339, an epoch
@@ -65,8 +66,8 @@ function Row({ item }: { item: ContextItem }) {
   const body = (
     <>
       <div className="res-top">
-        <span className="res-icon" aria-hidden>
-          {ICON[item.source] ?? '•'}
+        <span className="res-icon">
+          <Icon name={SOURCE_ICON[item.source] ?? 'circle'} size={15} />
         </span>
         <span className="res-title">{item.title}</span>
         {item.when ? <Chip>{when(item.when)}</Chip> : null}

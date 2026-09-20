@@ -3,6 +3,7 @@ import { rpc } from '../../shared/rpc';
 import { findDuplicateSets, isManageable } from '../../shared/tabLogic';
 import type { CleanupReport, GroupInfo, OrganizePreview, SuggestedGroup, TabClassification, TabInfo, TabLabel, TaskSession } from '../../shared/types';
 import { useAction, useLoad, useToast } from '../hooks';
+import { Icon } from '../icons';
 import { Button, Card, Chip, Confirm, Empty, Favicon, hostLabel } from '../ui';
 
 export const GROUP_HEX: Record<string, string> = {
@@ -68,10 +69,10 @@ export function TabsView({ session, autoOrganize, consumeAuto }: { session: Task
     <>
       <div className="toolbar">
         <Button variant="primary" busy={busy === 'organize'} onClick={() => void organize()}>
-          ✨ Organize Tabs
+          <Icon name="layers" size={14} /> Organize tabs
         </Button>
         <Button busy={busy === 'cleanup'} onClick={() => void cleanup()}>
-          🧹 Clean Up My Tabs
+          <Icon name="sprout" size={14} /> Clean up
         </Button>
         {session ? (
           <Button busy={busy === 'classify'} onClick={() => void run('classify', () => rpc('tabs.classify')).then((r) => r && setLabels(r.source === 'ai' ? r.labels : null))} title={`Compare every tab to “${session.task}”`}>
@@ -365,7 +366,9 @@ function TabList(p: {
                     </button>
                     {p.dupExtras.has(t.id) ? <Chip tone="warn">dup</Chip> : null}
                     {lab ? <Chip tone={LABEL_CHIP[lab.label].tone} title={lab.reason}>{LABEL_CHIP[lab.label].text}</Chip> : null}
-                    <button className="x" onClick={() => p.onClose(t.id)} aria-label={`Close ${t.title}`}>✕</button>
+                    <button className="x" onClick={() => p.onClose(t.id)} aria-label={`Close ${t.title}`}>
+                <Icon name="x" size={13} />
+              </button>
                   </li>
                 );
               })}

@@ -285,6 +285,37 @@ describe('calendar arguments the provider actually accepts', () => {
     expect(sentArgs()).toMatchObject({ orderBy: 'startTime', singleEvents: 'true' });
   });
 
+  /**
+   * Composio's schema defaults timeMin/timeMax to literal 2025 dates, and an omitted
+   * timeMax behaves as roughly "now" — so a bare lookup showed only past events and a
+   * meeting created for tomorrow was invisible.
+   */
+  it('always sends a window, so upcoming events are not cut off', async () => {
+    fetchMock.mockResolvedValueOnce(calendarConnected()).mockResolvedValueOnce(composioOk({ items: [] }));
+    const before = Date.now();
+    await runRead(liveEnv, { userId: USER, toolSlug: 'GOOGLECALENDAR_EVENTS_LIST', args: {} });
+
+    const { timeMin, timeMax } = sentArgs();
+    expect(Date.parse(timeMin)).toBeGreaterThanOrEqual(before - 1000);
+    // A week ahead, so tomorrow's meeting is inside the window.
+    expect(Date.parse(timeMax) - Date.parse(timeMin)).toBe(7 * 86_400_000);
+  });
+
+  it('extends the window from a caller-supplied start', async () => {
+    fetchMock.mockResolvedValueOnce(calendarConnected()).mockResolvedValueOnce(composioOk({ items: [] }));
+    await runRead(liveEnv, { userId: USER, toolSlug: 'GOOGLECALENDAR_EVENTS_LIST', args: { timeMin: '2026-09-20T00:00:00.000Z' } });
+
+    expect(sentArgs()).toMatchObject({ timeMin: '2026-09-20T00:00:00.000Z', timeMax: '2026-09-27T00:00:00.000Z' });
+  });
+
+  it('leaves an explicit window alone', async () => {
+    fetchMock.mockResolvedValueOnce(calendarConnected()).mockResolvedValueOnce(composioOk({ items: [] }));
+    const window = { timeMin: '2026-09-18T00:00:00.000Z', timeMax: '2026-09-23T00:00:00.000Z' };
+    await runRead(liveEnv, { userId: USER, toolSlug: 'GOOGLECALENDAR_EVENTS_LIST', args: window });
+
+    expect(sentArgs()).toMatchObject(window);
+  });
+
   it('accepts a whole number typed into a text field', async () => {
     fetchMock.mockResolvedValueOnce(calendarConnected()).mockResolvedValueOnce(composioOk({ items: [] }));
     await runRead(liveEnv, { userId: USER, toolSlug: 'GOOGLECALENDAR_EVENTS_LIST', args: { maxResults: '5' } });

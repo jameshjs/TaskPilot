@@ -1,12 +1,15 @@
 import { rpc } from '../../shared/rpc';
 import type { HistoryEvent } from '../../shared/types';
 import { useLoad } from '../hooks';
+import { Icon, type IconName } from '../icons';
 import { Card, Empty } from '../ui';
 
-const ICON: Record<HistoryEvent['kind'], string> = {
-  session_started: '🚀', tab_added: '📑', step_done: '✅', step_undone: '↩️', plan_updated: '📝',
-  drift: '🎬', returned: '🎯', session_saved: '💾', session_restored: '♻️', session_finished: '🏁',
-  tabs_organized: '📁', tabs_closed: '🧹', action_executed: '⚡', action_rejected: '🚫', note: '🗒️',
+/** Icons, not emoji. The set is deliberately small — fifteen event kinds map onto eight
+    glyphs, because a timeline reads better when related events share a mark. */
+const ICON: Record<HistoryEvent['kind'], IconName> = {
+  session_started: 'sprout', tab_added: 'plus', step_done: 'check', step_undone: 'circle', plan_updated: 'leaf',
+  drift: 'alert', returned: 'target', session_saved: 'archive', session_restored: 'archive', session_finished: 'check',
+  tabs_organized: 'layers', tabs_closed: 'x', action_executed: 'zap', action_rejected: 'x', note: 'message',
 };
 
 const dayLabel = (iso: string): string => {
@@ -41,7 +44,7 @@ export function HistoryView() {
             {d.items.map((e) => (
               <li key={e.id}>
                 <span className="time">{new Date(e.at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>
-                <span className="ic" aria-hidden>{ICON[e.kind] ?? '•'}</span>
+                <span className="ic"><Icon name={ICON[e.kind] ?? 'circle'} size={14} /></span>
                 <span>{e.text}</span>
               </li>
             ))}
