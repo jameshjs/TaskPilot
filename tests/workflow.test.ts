@@ -4,7 +4,7 @@
  * not on the allowlist cannot be reached at all.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { approve, execute, preview, reconcile, reject, runRead, type StoredPreview } from '../backend/src/workflow';
+import { approve, execute, gatherContext, preview, reconcile, reject, runRead, type StoredPreview } from '../backend/src/workflow';
 import { TOOLS } from '../backend/src/tools';
 
 const demoEnv = { OPENAI_API_KEY: '', OPENAI_MODEL: 'test', ALLOWED_ORIGIN: '*', SESSIONS: {} } as never;
@@ -197,5 +197,77 @@ describe('live mode', () => {
 
     await expect(execute(liveEnv, { userId: USER, previewId, approvalToken }, db.get, db.save)).rejects.toThrow(/failed to handle that request/i);
     await expect(execute(liveEnv, { userId: USER, previewId, approvalToken }, db.get, db.save)).rejects.not.toThrow(/ghp_verysecret/);
+  });
+});
+
+describe('gathering context from connected apps', () => {
+  /** Composio says this toolkit is connected. */
+  const connected = (slug: string) => ({ ok: true, status: 200, json: async () => ({ items: [{ id: 'ca_' + slug, status: 'ACTIVE', toolkit: { slug } }] }), text: async () => '' });
+  const none = () => ({ ok: true, status: 200, json: async () => ({ items: [] }), text: async () => '' });
+  const events = (n: number) => composioOk({ items: Array.from({ length: n }, (_, i) => ({ summary: `Event ${i}`, start: { dateTime: '2026-09-20T14:00:00Z' }, location: 'Zoom' })) });
+
+  it('runs entirely on read-only tools', async () => {
+    // Every tool gather uses must be effect:'read' — it executes without any approval.
+    for (const slug of ['GOOGLECALENDAR_EVENTS_LIST', 'GMAIL_FETCH_EMAILS', 'GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS']) {
+      expect(TOOLS[slug]?.effect).toBe('read');
+    }
+  });
+
+  it('returns labelled sample context in demo mode without any network call', async () => {
+    const r = await gatherContext(demoEnv, { userId: USER, task: 'Prepare for my interview' });
+    expect(r.simulated).toBe(true);
+    expect(r.items.length).toBeGreaterThan(0);
+    expect(r.items.every((i) => i.title.startsWith('[demo]'))).toBe(true); // never passed off as real
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps the sources that worked when one toolkit fails', async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes('connected_accounts')) return connected(new URL(url).searchParams.get('user_id') ? 'googlecalendar' : 'github');
+      if (url.includes('GOOGLECALENDAR')) return events(2);
+      return { ok: false, status: 500, json: async () => ({}), text: async () => 'boom' }; // gmail + github fail
+    });
+
+    const r = await gatherContext(liveEnv, { userId: USER, task: 'Prepare for my interview' });
+    expect(r.sources).toEqual(['googlecalendar']);
+    expect(r.items).toHaveLength(2);
+    expect(r.simulated).toBe(false);
+  });
+
+  it('skips toolkits the user has not connected, without calling them', async () => {
+    fetchMock.mockImplementation(async (url: string) => (url.includes('connected_accounts') ? none() : composioOk({ items: [] })));
+    const r = await gatherContext(liveEnv, { userId: USER, task: 'Prepare' });
+    expect(r.items).toEqual([]);
+    expect(r.sources).toEqual([]);
+    expect(fetchMock.mock.calls.every(([u]) => String(u).includes('connected_accounts'))).toBe(true);
+  });
+
+  it('caps how much of each source reaches the planner', async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes('connected_accounts')) return connected('googlecalendar');
+      if (url.includes('GOOGLECALENDAR')) return events(50);
+      return composioOk({ items: [] });
+    });
+    const r = await gatherContext(liveEnv, { userId: USER, task: 'Prepare' });
+    expect(r.items.length).toBeLessThanOrEqual(5);
+  });
+
+  it('normalises a provider payload into titled items', async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes('connected_accounts')) return connected('googlecalendar');
+      if (url.includes('GOOGLECALENDAR')) return events(1);
+      return composioOk({ items: [] });
+    });
+    const r = await gatherContext(liveEnv, { userId: USER, task: 'Prepare' });
+    expect(r.items[0]).toMatchObject({ source: 'googlecalendar', title: 'Event 0', detail: 'Zoom' });
+  });
+
+  it('survives a garbage payload rather than poisoning the plan', async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes('connected_accounts')) return connected('googlecalendar');
+      return composioOk({ unexpected: 'shape' });
+    });
+    const r = await gatherContext(liveEnv, { userId: USER, task: 'Prepare' });
+    expect(r.items).toEqual([]);
   });
 });

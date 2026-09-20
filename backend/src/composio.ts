@@ -77,6 +77,8 @@ function toStatus(raw: unknown): IntegrationState['status'] {
 /** Hardcoded per toolkit: Composio reports no scope list we can show the user. */
 const SCOPES: Record<IntegrationName, string[]> = {
   github: ['read repositories', 'read issues', 'create issues'],
+  googlecalendar: ['read upcoming events'],
+  gmail: ['read recent mail'],
   discord: [],
 };
 

@@ -64,6 +64,7 @@ const handlers: Handlers = {
   'workflow.tools': () => workflow.listTools(),
   'workflow.connect': ({ integration }) => workflow.connect(integration),
   'workflow.reconcile': ({ notes }) => workflow.reconcile(notes),
+  'workflow.gather': ({ task }) => workflow.gather(task),
   'workflow.read': ({ toolSlug, args }) => workflow.read(toolSlug, args ?? {}),
   'workflow.preview': ({ toolSlug, args }) => workflow.preview(toolSlug, args ?? {}),
   'workflow.pending': () => workflow.pending(),

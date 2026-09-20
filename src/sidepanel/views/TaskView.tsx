@@ -3,10 +3,15 @@ import { rpc } from '../../shared/rpc';
 import { nextIncompleteStep, progressOf } from '../../shared/sessionLogic';
 import { formatAgo } from '../../shared/tabLogic';
 import type { FocusState, FormField, InputSuggestion, NavigatorResult, ResumeInfo, SessionSummary, TaskSession } from '../../shared/types';
-import { useAction, useToast } from '../hooks';
+import type { IntegrationName } from '../../../shared/api';
+import { useAction, useLoad, useToast } from '../hooks';
 import { Button, Card, Chip, Confirm, Empty, Progress } from '../ui';
 import { SummaryCard } from './SummaryCard';
 import { WhatWasIDoingCard } from './WhatWasIDoingCard';
+
+/** Source attribution, so the UI can name where a plan's facts came from. */
+const SOURCE_ICON: Record<IntegrationName, string> = { github: '🐙', googlecalendar: '📅', gmail: '✉️', discord: '💬' };
+const SOURCE_LABEL: Record<IntegrationName, string> = { github: 'GitHub', googlecalendar: 'Calendar', gmail: 'Gmail', discord: 'Discord' };
 
 interface Props {
   session: TaskSession | null;
@@ -32,6 +37,9 @@ function StartTask({ saved, finished, dismissFinished, onRestored }: Props) {
   const [task, setTask] = useState('');
   const { run, busy } = useAction();
   const latest = saved.find((s) => s.status === 'saved');
+  // Only claim the apps that are actually usable right now.
+  const integrations = useLoad(() => rpc('workflow.status'), ['state']);
+  const connected = (integrations.data?.integrations ?? []).filter((i) => i.status === 'connected' || i.status === 'demo').map((i) => i.name);
 
   return (
     <>
@@ -52,7 +60,14 @@ function StartTask({ saved, finished, dismissFinished, onRestored }: Props) {
             Start task
           </Button>
         </div>
-        <p className="hint">TaskPilot will plan the steps, pull the relevant tabs into a group, and keep you on track.</p>
+        {connected.length ? (
+          <p className="hint">
+            {busy === 'start' ? 'Reading ' : 'Will read '}
+            {connected.map((n) => `${SOURCE_ICON[n]} ${SOURCE_LABEL[n]}`).join(' · ')} to ground the plan in what is actually on your plate.
+          </p>
+        ) : (
+          <p className="hint">TaskPilot will plan the steps, pull the relevant tabs into a group, and keep you on track.</p>
+        )}
       </Card>
 
       {latest ? (
@@ -206,6 +221,11 @@ function ActiveTask({ session, focus, resume, dismissResume, onFinished, goTabs 
               </Button>
             </div>
           </div>
+        ) : null}
+        {session.contextSources?.length ? (
+          <p className="hint">
+            Built from {session.contextSources.map((n) => `${SOURCE_ICON[n]} ${SOURCE_LABEL[n]}`).join(' · ')} via Composio.
+          </p>
         ) : null}
         {session.taskPlan.length === 0 ? (
           <Empty>No steps yet.</Empty>

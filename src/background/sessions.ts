@@ -1,4 +1,4 @@
-import type { PlanResponse, SummaryRequest, SummaryResponse } from '../../shared/api';
+import type { ContextItem, PlanResponse, SummaryRequest, SummaryResponse } from '../../shared/api';
 import {
   activeMsNow,
   buildLocalSummary,
@@ -16,6 +16,7 @@ import type { ResumeInfo, SavedTab, SessionSummary, TabInfo, TaskSession } from 
 import { isWebUrl, normalizeUrl } from '../shared/urlutil';
 import { callApi } from './api';
 import { classifyTabs, closeTabs, groupTabs, snapshot } from './tabs';
+import * as workflow from './workflow';
 import {
   getActiveSession,
   getHistory,
@@ -36,9 +37,9 @@ async function persist(s: TaskSession): Promise<void> {
 
 // ── Planning ───────────────────────────────────────────────────────────────
 
-async function plan(task: string): Promise<PlanResponse> {
+async function plan(task: string, context?: ContextItem[]): Promise<PlanResponse> {
   try {
-    return await callApi<PlanResponse>('/plan', { goal: task });
+    return await callApi<PlanResponse>('/plan', { goal: task, ...(context?.length ? { context } : {}) });
   } catch {
     return fallbackPlan(task);
   }
@@ -92,9 +93,13 @@ export async function startSession(task: string): Promise<TaskSession> {
   const current = await getActiveSession();
   if (current) await deactivate(current, { closeTabs: false });
 
-  // Planning and tab classification are independent: run them together.
-  const [planned, classified] = await Promise.all([plan(trimmed), classifyTabs(trimmed)]);
+  // Connected-app context feeds the planner, so it has to land first — but it never
+  // blocks: `gather` swallows its own failures and the backend caps it with a timeout.
+  // Tab classification is independent, so it runs alongside.
+  const [gathered, classified] = await Promise.all([workflow.gather(trimmed), classifyTabs(trimmed)]);
+  const planned = await plan(trimmed, gathered.items);
   const session = createSession(trimmed, planned);
+  session.contextSources = gathered.sources;
   await persist(session);
   await setActiveSessionId(session.sessionId);
   await setFocus({ status: 'idle' });

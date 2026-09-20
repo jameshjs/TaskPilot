@@ -33,6 +33,7 @@ const ROUTES: Record<string, Handler> = {
   '/integrations/connect': async (env, body) => workflow.connect(env, body),
   '/tools/list': async () => workflow.tools(),
   '/context/reconcile': async (env, body) => workflow.reconcile(env, body),
+  '/context/gather': async (env, body) => workflow.gatherContext(env, body),
   '/tools/read': async (env, body) => workflow.runRead(env, body),
   '/actions/preview': async (env, body) => {
     const userId = reqStr(body.userId, 'userId', 80);

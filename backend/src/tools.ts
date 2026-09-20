@@ -46,6 +46,22 @@ const SPECS = [
     args: { q: 'string' },
   },
   {
+    // Slugs are exact-match. Verify against `GET /v3.1/tools?toolkit_slugs=…` before a
+    // live demo: a renamed slug fails closed here (400) rather than reaching Composio.
+    slug: 'GOOGLECALENDAR_EVENTS_LIST',
+    toolkit: 'googlecalendar',
+    effect: 'read',
+    label: 'List calendar events',
+    args: { calendarId: 'string?', timeMin: 'string?', timeMax: 'string?', maxResults: 'int?', singleEvents: 'string?', orderBy: 'string?' },
+  },
+  {
+    slug: 'GMAIL_FETCH_EMAILS',
+    toolkit: 'gmail',
+    effect: 'read',
+    label: 'Find recent emails',
+    args: { query: 'string?', max_results: 'int?' },
+  },
+  {
     slug: 'GITHUB_CREATE_AN_ISSUE',
     toolkit: 'github',
     effect: 'write',
@@ -64,7 +80,7 @@ const SPECS = [
 export const TOOLS: Record<string, ToolSpec> = Object.fromEntries(SPECS.map((s) => [s.slug, s as ToolSpec]));
 
 /** Toolkits this release actually supports. Discord stays in the type union but ships disabled. */
-export const SUPPORTED_TOOLKITS: IntegrationName[] = ['github'];
+export const SUPPORTED_TOOLKITS: IntegrationName[] = ['github', 'googlecalendar', 'gmail'];
 
 export function listTools(): ToolSpec[] {
   return Object.values(TOOLS);
@@ -123,5 +139,6 @@ export function describeTarget(spec: ToolSpec, args: Record<string, unknown>): s
     return args.issue_number ? `${repo}#${args.issue_number}` : repo;
   }
   if (typeof args.q === 'string') return `search: ${args.q}`;
+  if (typeof args.query === 'string') return `search: ${args.query}`;
   return spec.toolkit;
 }

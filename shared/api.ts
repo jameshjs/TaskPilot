@@ -32,11 +32,30 @@ export interface TabMeta {
 
 // ── Planner ────────────────────────────────────────────────────────────────
 
+/** One real thing found in a connected app — a meeting, an email, an issue. */
+export interface ContextItem {
+  source: IntegrationName;
+  title: string;
+  detail?: string;
+  /** Human-readable time, e.g. "Tomorrow 2:00 PM". */
+  when?: string;
+  url?: string;
+}
+export interface GatherContextRequest { userId: string; task: string }
+export interface GatherContextResponse {
+  items: ContextItem[];
+  /** Toolkits that actually contributed — drives what the UI can honestly claim. */
+  sources: IntegrationName[];
+  simulated: boolean;
+}
+
 export interface PlanRequest {
   goal: string;
   /** When present, the planner revises this plan instead of creating a new one. */
   existing?: { steps: { title: string; done: boolean }[] };
   note?: string;
+  /** Real items from the user's connected apps, for grounding the plan. */
+  context?: ContextItem[];
 }
 export interface PlanResponse {
   /** Short workspace name, e.g. "SWE Applications". */
@@ -174,7 +193,7 @@ export interface WhatWasIDoingResponse {
 }
 
 // ── Engineering workflow actions ─────────────────────────────────────────
-export const INTEGRATION_NAMES = ['github', 'discord'] as const;
+export const INTEGRATION_NAMES = ['github', 'googlecalendar', 'gmail', 'discord'] as const;
 export type IntegrationName = (typeof INTEGRATION_NAMES)[number];
 export type IntegrationStatus = 'connected' | 'disconnected' | 'demo';
 export type WorkflowAction = 'create_issue' | 'create_pull_request' | 'message_person' | 'ask_user';

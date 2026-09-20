@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { installFakeChrome, type FakeChrome } from './fakeChrome';
 import type { HistoryEvent } from '../src/shared/types';
 import type { ActionPreview, ToolReadResponse } from '../shared/api';
+import type { TaskSession } from '../src/shared/types';
 
 let f: FakeChrome;
 const rpc = <T,>(type: string, payload?: unknown) => f.rpc(type, payload) as Promise<T>;
@@ -157,5 +158,41 @@ describe('what leaves the browser', () => {
     const tabs = (bodyOf('/context/reconcile').at(-1) as { tabs: { url: string }[] }).tabs;
     expect(tabs.some((t) => t.url.includes('bank.example'))).toBe(false);
     expect(tabs.some((t) => t.url.includes('github.com'))).toBe(true);
+  });
+});
+
+describe('starting a task with connected-app context', () => {
+  it('feeds gathered items into the planner and records which apps contributed', async () => {
+    f.apiReplies['/context/gather'] = {
+      items: [
+        { source: 'googlecalendar', title: 'Interview — Acme Corp', when: 'Tomorrow 2:00 PM' },
+        { source: 'gmail', title: 'Your Acme take-home brief', detail: 'recruiting@acme.example' },
+      ],
+      sources: ['googlecalendar', 'gmail'],
+      simulated: false,
+    };
+
+    const s = await rpc<TaskSession>('session.start', { task: 'Prepare for my interview with Acme tomorrow' });
+
+    // The planner was given the real items, not just the sentence.
+    const planBody = bodyOf('/plan')[0] as { goal: string; context?: { title: string }[] };
+    expect(planBody.context?.map((c) => c.title)).toEqual(['Interview — Acme Corp', 'Your Acme take-home brief']);
+    // …and the session remembers who contributed, so the UI can say so honestly.
+    expect(s.contextSources).toEqual(['googlecalendar', 'gmail']);
+  });
+
+  it('still starts the task when the gather fails outright', async () => {
+    f.apiReplies['/context/gather'] = new Error('Backend 502: connected-apps service failed');
+    const s = await rpc<TaskSession>('session.start', { task: 'Prepare for my interview' });
+
+    expect(s.taskPlan.length).toBeGreaterThan(0);
+    expect(s.contextSources ?? []).toEqual([]);
+    expect((bodyOf('/plan')[0] as { context?: unknown[] }).context).toBeUndefined();
+  });
+
+  it('claims no sources when nothing was connected', async () => {
+    f.apiReplies['/context/gather'] = { items: [], sources: [], simulated: false };
+    const s = await rpc<TaskSession>('session.start', { task: 'Prepare for my interview' });
+    expect(s.contextSources ?? []).toEqual([]);
   });
 });

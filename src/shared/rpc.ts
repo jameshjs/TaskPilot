@@ -19,6 +19,7 @@ import type {
 import type {
   ActionPreview,
   ActionExecuteResponse,
+  GatherContextResponse,
   IntegrationConnectResponse,
   IntegrationName,
   IntegrationState,
@@ -75,6 +76,7 @@ export interface RpcMap {
   'workflow.tools': { req: void; res: { tools: ToolDescriptor[] } };
   'workflow.connect': { req: { integration: IntegrationName }; res: IntegrationConnectResponse };
   'workflow.reconcile': { req: { notes?: string }; res: ReconcileResponse };
+  'workflow.gather': { req: { task: string }; res: GatherContextResponse };
   'workflow.read': { req: { toolSlug: string; args?: Record<string, unknown> }; res: ToolReadResponse };
   'workflow.preview': { req: { toolSlug: string; args?: Record<string, unknown> }; res: ActionPreview };
   'workflow.pending': { req: void; res: ActionPreview | null };

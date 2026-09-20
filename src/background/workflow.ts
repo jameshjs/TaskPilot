@@ -5,6 +5,7 @@ import { currentStepTitle } from '../shared/sessionLogic';
 import { hostOf, matchesHost, redactTitle, redactUrl } from '../shared/urlutil';
 import type {
   ActionApproveResponse,
+  GatherContextResponse,
   ActionExecuteResponse,
   ActionPreview,
   IntegrationConnectResponse,
@@ -65,6 +66,21 @@ export async function connect(integration: IntegrationName): Promise<Integration
 }
 
 // ── Reading ────────────────────────────────────────────────────────────────
+
+/**
+ * What the user's connected apps know about right now, for grounding a new plan.
+ *
+ * Never throws: starting a task is the core flow and must not depend on a provider
+ * being reachable. A failure degrades to no context, and the plan is written without it.
+ */
+export async function gather(task: string): Promise<GatherContextResponse> {
+  try {
+    return await callApi<GatherContextResponse>('/context/gather', { userId: await userId(), task });
+  } catch (e) {
+    reportTelemetry('workflow_failed', 'Context gather failed', { reason: 'gather_error' }, { message: e instanceof Error ? e.message : String(e) });
+    return { items: [], sources: [], simulated: false };
+  }
+}
 
 export async function reconcile(notes?: string): Promise<ReconcileResponse> {
   return callApi('/context/reconcile', { ...(await context()), notes });

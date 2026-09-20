@@ -8,6 +8,9 @@
  */
 import type {
   ActionPreview,
+  ContextItem,
+  GatherContextResponse,
+  IntegrationName,
   IntegrationState,
   ReconcileRequest,
   ReconcileResponse,
@@ -80,6 +83,109 @@ export async function reconcile(env: Env, body: Record<string, unknown>): Promis
       return { facts: arrayOf(r.facts, 'facts', 20, (f) => { const x = f as Record<string, unknown>; return { claim: reqStr(x.claim, 'claim', 300), sources: arrayOf(x.sources, 'sources', 6, (s) => reqStr(s, 'source', 120)), confidence: clamp01(x.confidence), status: x.status === 'conflicting' || x.status === 'missing' || x.status === 'stale' ? x.status : 'confirmed' }; }), conflicts: arrayOf(r.conflicts, 'conflicts', 10, (x) => reqStr(x, 'conflict', 300)), missing: arrayOf(r.missing, 'missing', 10, (x) => reqStr(x, 'missing', 200)), recommendation: reqStr(r.recommendation, 'recommendation', 500), nextAction: (['create_issue', 'create_pull_request', 'message_person', 'ask_user'] as WorkflowAction[]).includes(r.nextAction as WorkflowAction) ? r.nextAction as WorkflowAction : 'ask_user', source: 'ai' };
     },
   });
+}
+
+// ── Gathering context from connected apps ──────────────────────────────────
+
+/** Whole-gather budget. Starting a task must never wait on a slow provider. */
+const GATHER_TIMEOUT_MS = 6_000;
+/** Per source, so one chatty inbox can't crowd out the calendar in the prompt. */
+const ITEMS_PER_SOURCE = 5;
+
+const trim = (v: unknown, max = 200): string => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+
+/**
+ * One read per toolkit, chosen for "what does this person need to know right now".
+ * Arguments stay deliberately broad — the planner does the relevance thinking, and a
+ * narrow provider-side query risks returning nothing at all on stage.
+ */
+function plannedReads(task: string, now: Date): { toolkit: IntegrationName; slug: string; args: Record<string, unknown> }[] {
+  const dayAhead = new Date(now.getTime() + 36 * 3600_000);
+  return [
+    {
+      toolkit: 'googlecalendar',
+      slug: 'GOOGLECALENDAR_EVENTS_LIST',
+      args: { calendarId: 'primary', timeMin: now.toISOString(), timeMax: dayAhead.toISOString(), maxResults: ITEMS_PER_SOURCE, singleEvents: 'true', orderBy: 'startTime' },
+    },
+    { toolkit: 'gmail', slug: 'GMAIL_FETCH_EMAILS', args: { query: 'newer_than:7d -category:promotions', max_results: ITEMS_PER_SOURCE } },
+    { toolkit: 'github', slug: 'GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS', args: { q: 'involves:@me is:open updated:>' + new Date(now.getTime() - 14 * 86_400_000).toISOString().slice(0, 10) } },
+  ];
+}
+
+/**
+ * Providers each return a different shape, and none of it is trusted. Pull out only the
+ * few fields the planner needs and drop anything unrecognisable.
+ */
+function toItems(source: IntegrationName, data: unknown): ContextItem[] {
+  const d = (data ?? {}) as Record<string, unknown>;
+  const rows = (Array.isArray(d.items) ? d.items : Array.isArray(d.messages) ? d.messages : Array.isArray(d.results) ? d.results : Array.isArray(data) ? data : []) as Record<string, unknown>[];
+
+  return rows.slice(0, ITEMS_PER_SOURCE).map((r) => {
+    if (source === 'googlecalendar') {
+      const start = (r.start ?? {}) as Record<string, unknown>;
+      return { source, title: trim(r.summary) || 'Untitled event', when: trim(start.dateTime ?? start.date, 40), detail: trim(r.location ?? r.description, 160), url: trim(r.htmlLink, 400) || undefined };
+    }
+    if (source === 'gmail') {
+      return { source, title: trim(r.subject ?? r.snippet) || 'Email', detail: trim(r.from ?? r.sender, 120), when: trim(r.date ?? r.internalDate, 40) };
+    }
+    return { source, title: trim(r.title) || 'Issue', detail: trim(r.repository_url ?? r.html_url, 160), url: trim(r.html_url, 400) || undefined };
+  }).filter((i) => i.title);
+}
+
+/** Labelled sample context so the flow is demonstrable without a Composio key. */
+function demoItems(): ContextItem[] {
+  return [
+    { source: 'googlecalendar', title: '[demo] Interview — Acme Corp', when: 'Tomorrow 2:00 PM', detail: 'Video call · 45 min' },
+    { source: 'gmail', title: '[demo] Your Acme take-home brief', detail: 'recruiting@acme.example', when: 'Tuesday' },
+    { source: 'github', title: '[demo] Flaky auth test on acme/api', detail: 'acme/api#212' },
+  ];
+}
+
+/**
+ * Read what the user's connected apps know about right now.
+ *
+ * `allSettled`, not `all`: a toolkit that is disconnected, slow or erroring must not stop
+ * the others — starting a task is the core flow and it degrades to zero items rather than
+ * failing. Nothing here can mutate anything: every tool used is `effect: 'read'`.
+ */
+export async function gatherContext(env: Env, body: Record<string, unknown>): Promise<GatherContextResponse> {
+  const userId = reqStr(body.userId, 'userId', 80);
+  const task = reqStr(body.task, 'task', 500);
+  if (!isLive(env)) return { items: demoItems(), sources: ['googlecalendar', 'gmail', 'github'], simulated: true };
+
+  const reads = plannedReads(task, new Date());
+  const work = Promise.allSettled(
+    reads.map(async (r) => {
+      const spec = toolSpec(r.slug);
+      if (spec.effect !== 'read') throw new Error('gather may only use read tools');
+      const connectedAccountId = await activeConnectionId(env, userId, r.toolkit);
+      if (!connectedAccountId) return { source: r.toolkit, items: [] as ContextItem[] };
+      const run = await executeTool(env, { spec, userId, args: validateArgs(spec, r.args), connectedAccountId });
+      return { source: r.toolkit, items: toItems(r.toolkit, run.data) };
+    }),
+  );
+
+  const settled = await Promise.race([
+    work,
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), GATHER_TIMEOUT_MS)),
+  ]);
+  if (!settled) {
+    console.log(JSON.stringify({ event: 'composio.gather_timeout', ms: GATHER_TIMEOUT_MS }));
+    return { items: [], sources: [], simulated: false };
+  }
+
+  const items: ContextItem[] = [];
+  const sources: IntegrationName[] = [];
+  for (const [i, r] of settled.entries()) {
+    if (r.status !== 'fulfilled') {
+      console.log(JSON.stringify({ event: 'composio.gather_failed', toolkit: reads[i]?.toolkit, message: String(r.reason?.message ?? r.reason).slice(0, 200) }));
+      continue;
+    }
+    if (!r.value.items.length) continue;
+    sources.push(r.value.source);
+    items.push(...r.value.items);
+  }
+  return { items, sources, simulated: false };
 }
 
 // ── Running tools ──────────────────────────────────────────────────────────

@@ -13,9 +13,18 @@ export async function plan(env: Env, body: Record<string, unknown>): Promise<Pla
   const note = optStr(body.note, 400);
   const prior = existing?.steps?.slice(0, 30) ?? [];
 
+  // Real items read from the user's connected apps, if any were gathered.
+  const context = arrayOf(body.context ?? [], 'context', 15, (x) => {
+    const c = (x ?? {}) as Record<string, unknown>;
+    return { source: optStr(c.source, 30) ?? '', title: optStr(c.title, 200) ?? '', detail: optStr(c.detail, 200), when: optStr(c.when, 40) };
+  }).filter((c) => c.title);
+  const contextBlock = context.length
+    ? `\n\nContext from the user's connected apps:\n${context.map((c) => `- [${c.source}]${c.when ? ` ${c.when} ·` : ''} ${c.title}${c.detail ? ` — ${c.detail}` : ''}`).join('\n')}`
+    : '';
+
   const user = prior.length
-    ? `Goal: ${goal}\n\nCurrent plan:\n${prior.map((s, i) => `${i + 1}. [${s.done ? 'x' : ' '}] ${s.title}`).join('\n')}${note ? `\n\nWhat changed: ${note}` : ''}\n\nRevise the plan. Keep completed steps and reuse the exact wording of steps that still apply.`
-    : `Goal: ${goal}\n\nWrite the plan.`;
+    ? `Goal: ${goal}\n\nCurrent plan:\n${prior.map((s, i) => `${i + 1}. [${s.done ? 'x' : ' '}] ${s.title}`).join('\n')}${note ? `\n\nWhat changed: ${note}` : ''}${contextBlock}\n\nRevise the plan. Keep completed steps and reuse the exact wording of steps that still apply.`
+    : `Goal: ${goal}${contextBlock}\n\nWrite the plan.`;
 
   return ask<PlanResponse>(env, {
     system: `You plan browser tasks. Produce 3-8 concrete, checkable steps a person completes in a web browser, in the order they would do them.
@@ -24,7 +33,8 @@ Rules:
 - A step is a visible outcome ("Complete application #1"), not an instruction to the app.
 - If the goal names a count ("three internships"), give each one its own step.
 - "title" is a 2-4 word workspace name for the browser tab group, e.g. "SWE Applications". No emoji.
-- When revising, preserve the exact title of any step that still applies so progress is not lost, and keep done:true for finished work.`,
+- When revising, preserve the exact title of any step that still applies so progress is not lost, and keep done:true for finished work.
+- When context from connected apps is given, ground the steps in those specific items: name the actual meeting, email or issue rather than writing a generic step. Never invent an event, message, repository or person that is not listed — if the context is thin, write ordinary steps instead.`,
     user,
     schemaName: 'task_plan',
     schema: obj({

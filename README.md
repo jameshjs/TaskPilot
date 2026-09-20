@@ -169,6 +169,23 @@ TaskPilot can act in external apps through the Worker. The first release support
 **GitHub**. Your provider credentials live with Composio and never enter the browser or
 the extension — the extension only ever opens Composio's hosted sign-in page.
 
+### Task prep across your apps
+
+Start a task like *"Prepare for my interview with Acme tomorrow"* and TaskPilot reads
+your connected apps first — upcoming calendar events, recent mail, open issues you are
+involved in — and plans from what it finds:
+
+```
+Without connected apps          With Calendar + Gmail + GitHub
+- Review Acme company website   - Review Acme take-home brief
+- Read job description          - Check interview time and link
+- Complete application #1       - Review acme/api#212 issue
+```
+
+Every call it makes is read-only, they run in parallel, and any app that is slow,
+disconnected or failing is simply left out — the task always starts. The plan says which
+apps shaped it, and claims only the ones that actually returned something.
+
 Open TaskPilot → **Actions**:
 
 1. **Connect github** — opens the sign-in page in a tab. Composio stores and refreshes

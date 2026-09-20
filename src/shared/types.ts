@@ -1,3 +1,4 @@
+import type { IntegrationName } from '../../shared/api';
 import type {
   FocusClass,
   GroupColor,
@@ -86,6 +87,8 @@ export interface TaskSession {
   windowId?: number;
   /** URLs (normalized) the user marked "This is relevant". */
   relevantUrls: string[];
+  /** Connected apps whose data shaped this plan, for honest attribution in the UI. */
+  contextSources?: IntegrationName[];
 }
 
 export interface SessionSummary {
