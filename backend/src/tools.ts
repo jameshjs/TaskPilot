@@ -21,6 +21,13 @@ export interface ToolSpec {
   /** Shown to the user in the confirmation, so it must describe the real-world effect. */
   label: string;
   args: Record<string, ArgType>;
+  /** Filled in when the caller omits the key. For args a provider needs but a person shouldn't have to type. */
+  defaults?: Record<string, string | number>;
+  /**
+   * Last-mile repair of argument combinations a provider rejects. Runs after validation,
+   * so it only ever sees coerced values of the declared type.
+   */
+  normalize?: (args: Record<string, unknown>) => Record<string, unknown>;
 }
 
 const SPECS = [
@@ -53,6 +60,13 @@ const SPECS = [
     effect: 'read',
     label: 'List calendar events',
     args: { calendarId: 'string?', timeMin: 'string?', timeMax: 'string?', maxResults: 'int?', singleEvents: 'string?', orderBy: 'string?' },
+    // Composio rejects the call outright without calendarId ("Following fields are
+    // missing"), and nobody wants to type "primary" into a form to see their own diary.
+    defaults: { calendarId: 'primary' },
+    // Google refuses orderBy=startTime unless the recurring-event expansion is on:
+    // "The requested ordering is not available for the particular query." The two are
+    // not independent knobs, so don't make the caller discover that via a 502.
+    normalize: (args) => (args.orderBy === 'startTime' ? { ...args, singleEvents: 'true' } : args),
   },
   {
     slug: 'GMAIL_FETCH_EMAILS',
@@ -111,7 +125,9 @@ export function validateArgs(spec: ToolSpec, raw: unknown): Record<string, unkno
   const out: Record<string, unknown> = {};
 
   for (const [name, type] of Object.entries(spec.args)) {
-    const value = input[name];
+    const supplied = input[name];
+    // A default is only a fallback — an explicit value always wins.
+    const value = supplied === undefined || supplied === null || supplied === '' ? spec.defaults?.[name] : supplied;
     const optional = type.endsWith('?');
 
     if (value === undefined || value === null || value === '') {
@@ -120,8 +136,11 @@ export function validateArgs(spec: ToolSpec, raw: unknown): Record<string, unkno
     }
 
     if (type.startsWith('int')) {
-      if (typeof value !== 'number' || !Number.isInteger(value)) throw new HttpError(400, `${name} must be a whole number.`);
-      out[name] = value;
+      // The side panel builds arguments from text inputs, so a number always arrives as
+      // a string. Rejecting "5" was a backend-shaped complaint about a UI detail.
+      const n = typeof value === 'string' && /^-?\d+$/.test(value.trim()) ? Number(value.trim()) : value;
+      if (typeof n !== 'number' || !Number.isInteger(n)) throw new HttpError(400, `${name} must be a whole number.`);
+      out[name] = n;
     } else {
       if (typeof value !== 'string') throw new HttpError(400, `${name} must be text.`);
       const t = value.trim();
@@ -129,7 +148,7 @@ export function validateArgs(spec: ToolSpec, raw: unknown): Record<string, unkno
       if (t) out[name] = t.slice(0, 8000);
     }
   }
-  return out;
+  return spec.normalize ? spec.normalize(out) : out;
 }
 
 /** A one-line, human-readable target for the confirmation prompt. */

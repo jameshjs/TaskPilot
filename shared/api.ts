@@ -253,7 +253,16 @@ export interface ReconcileRequest { task: string; currentStep?: string; tabs: Ta
 export interface ReconcileResponse extends ReconciliationResult { source: 'ai' | 'demo'; }
 /** Read-only tools run straight through; there is nothing to approve. */
 export interface ToolReadRequest { userId: string; toolSlug: string; args?: Record<string, unknown> }
-export interface ToolReadResponse { toolSlug: string; data: unknown; simulated: boolean }
+export interface ToolReadResponse {
+  toolSlug: string;
+  data: unknown;
+  simulated: boolean;
+  /**
+   * The same rows as `data`, flattened to something displayable. Empty when the payload
+   * had no recognisable rows — the panel falls back to showing `data` verbatim.
+   */
+  items?: ContextItem[];
+}
 export interface ActionPreviewRequest { userId: string; task?: string; toolSlug: string; args?: Record<string, unknown> }
 export interface ActionApproveRequest { userId: string; previewId: string }
 /** The token is returned once, here, and must be echoed back to execute. */

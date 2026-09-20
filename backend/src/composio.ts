@@ -93,15 +93,31 @@ function demoState(name: IntegrationName): IntegrationState {
 export async function listConnections(env: Env, userId: string, toolkits: IntegrationName[]): Promise<IntegrationState[]> {
   if (!isLive(env)) return toolkits.map(demoState);
 
-  const res = await call<{ items?: unknown[] }>(env, `/v3.1/connected_accounts?user_id=${encodeURIComponent(userId)}`, { method: 'GET' });
-  const items = Array.isArray(res.items) ? res.items : [];
+  // `user_ids`, plural. The singular `user_id` is accepted and then silently ignored:
+  // it returns every account in the project, so a nonexistent user still came back with
+  // six. Relying on it meant handing one user's connected_account_id to another user's
+  // tool call. The per-row check below is the belt to that braces — a filter this API
+  // has already been seen to drop is not something to trust on its own.
+  const res = await call<{ items?: unknown[] }>(env, `/v3.1/connected_accounts?user_ids=${encodeURIComponent(userId)}`, { method: 'GET' });
+  const items = (Array.isArray(res.items) ? res.items : []).filter((i) => {
+    const row = (i ?? {}) as Record<string, unknown>;
+    const owner = row.user_id ?? (row.user as Record<string, unknown> | undefined)?.id;
+    if (String(owner ?? '') === userId) return true;
+    console.log(JSON.stringify({ event: 'composio.foreign_account_filtered', toolkit: (row.toolkit as Record<string, unknown> | undefined)?.slug ?? row.toolkit_slug }));
+    return false;
+  });
 
   return toolkits.map((name) => {
-    const found = items.find((i) => {
+    const forToolkit = items.filter((i) => {
       const row = i as Record<string, unknown>;
       const slug = (row.toolkit as Record<string, unknown> | undefined)?.slug ?? row.toolkit_slug;
       return String(slug ?? '').toLowerCase() === name;
-    }) as Record<string, unknown> | undefined;
+    }) as Record<string, unknown>[];
+
+    // Reconnecting leaves the old rows behind as EXPIRED, so a toolkit can have several.
+    // Prefer an ACTIVE one; picking whichever the API happened to list first would report
+    // a working account as disconnected.
+    const found = forToolkit.find((row) => String(row.status ?? '').toUpperCase() === 'ACTIVE') ?? forToolkit[0];
 
     if (!found) return { name, status: 'disconnected' as const, scopes: SCOPES[name] };
     return {
@@ -120,6 +136,46 @@ export async function activeConnectionId(env: Env, userId: string, toolkit: Inte
 }
 
 /**
+ * Auth configs are per-project and per-toolkit, and the link endpoint addresses one by
+ * id — a toolkit slug alone is not enough (Composio answers `auth_config_id: Required`).
+ * They change about never, so resolve once per isolate rather than on every connect.
+ */
+const authConfigIds = new Map<IntegrationName, string>();
+
+/** Test-only: the cache is per-isolate, so tests need to clear it between cases. */
+export function resetAuthConfigCache(): void {
+  authConfigIds.clear();
+}
+
+/**
+ * The enabled auth config for a toolkit.
+ *
+ * A missing one is an operator gap, not a user error: nobody can sign in until the
+ * project has a config for that app. Say so explicitly instead of surfacing Composio's
+ * generic validation failure as a 502.
+ */
+async function authConfigId(env: Env, toolkit: IntegrationName): Promise<string> {
+  const cached = authConfigIds.get(toolkit);
+  if (cached) return cached;
+
+  const res = await call<{ items?: unknown[] }>(env, `/v3/auth_configs?toolkit_slugs=${encodeURIComponent(toolkit)}`, { method: 'GET' });
+  const items = Array.isArray(res.items) ? res.items : [];
+  const found = items.find((i) => {
+    const row = (i ?? {}) as Record<string, unknown>;
+    const slug = (row.toolkit as Record<string, unknown> | undefined)?.slug ?? row.toolkit_slug;
+    // `toolkit_slugs` is a filter, not a guarantee — confirm the row before trusting it.
+    return String(slug ?? '').toLowerCase() === toolkit && String(row.status ?? '').toUpperCase() === 'ENABLED';
+  }) as Record<string, unknown> | undefined;
+
+  if (typeof found?.id !== 'string' || !found.id) {
+    console.log(JSON.stringify({ event: 'composio.no_auth_config', toolkit, candidates: items.length }));
+    throw new HttpError(409, `${toolkit} sign-in is not configured yet, so TaskPilot cannot connect it.`);
+  }
+  authConfigIds.set(toolkit, found.id);
+  return found.id;
+}
+
+/**
  * Start OAuth. Composio hosts the sign-in page and keeps the tokens; the extension only
  * ever opens this URL in a tab.
  */
@@ -127,7 +183,7 @@ export async function createConnectLink(env: Env, userId: string, toolkit: Integ
   if (!isLive(env)) return { redirectUrl: 'demo://connect/' + toolkit };
   const res = await call<{ redirect_url?: unknown }>(env, '/v3.1/connected_accounts/link', {
     method: 'POST',
-    body: { toolkit_slug: toolkit, user_id: userId },
+    body: { auth_config_id: await authConfigId(env, toolkit), user_id: userId },
   });
   const url = typeof res.redirect_url === 'string' ? res.redirect_url : '';
   if (!/^https:\/\//.test(url)) throw new HttpError(502, 'The connected-apps service did not return a sign-in link.');
@@ -139,6 +195,49 @@ export async function createConnectLink(env: Env, userId: string, toolkit: Integ
 export interface ToolRun {
   data: unknown;
   logId?: string;
+}
+
+/**
+ * The one line of a provider complaint worth showing, with identifiers stripped.
+ *
+ * Provider payloads are still never returned wholesale — see `call` above. But refusing
+ * to say anything at all is its own failure: "check the connected account" sent a user
+ * re-authorising a perfectly good account when the real problem was a missing argument.
+ */
+function providerReason(raw: string): string {
+  const inner = /"message"\s*:\s*"([^"]{3,200})"/.exec(raw)?.[1] ?? raw.split('\n')[0] ?? '';
+  return inner
+    .replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '[address]') // account identifiers
+    .replace(/\b(gh[pousr]|sk|ey|ac|ca)_[A-Za-z0-9_-]{8,}/g, '[id]') // tokens and record ids
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 180);
+}
+
+/**
+ * Whose fault the failure was.
+ *
+ * Everything used to collapse into a 502, which made an unusable error: the client can
+ * retry a 502 forever and a bad argument will never fix itself. Arguments the provider
+ * refused are the caller's to correct (400); a revoked grant needs a reconnect (409);
+ * only an actually broken provider is a 502.
+ */
+function toolFailure(spec: ToolSpec, raw: string): HttpError {
+  const reason = providerReason(raw);
+  const status = /status:\s*(\d{3})/i.exec(raw)?.[1];
+
+  if (status === '401' || status === '403' || /invalid_grant|token (has been )?(expired|revoked)|unauthorized/i.test(raw)) {
+    return new HttpError(409, `Your ${spec.toolkit} connection needs to be renewed. Reconnect the account and try again.`);
+  }
+  // Providers are inconsistent about whether a status code appears at all — GitHub sends
+  // a bare "Not Found" for a repo that does not exist. That is still the caller's typo.
+  if (status === '400' || status === '404' || status === '422' || /fields are missing|invalid request data|invalid value|required|not found|does not exist/i.test(raw)) {
+    return new HttpError(400, `${spec.label} was refused: ${reason || 'the arguments were not accepted.'}`);
+  }
+  if (status === '429' || /rate limit/i.test(raw)) {
+    return new HttpError(429, `${spec.toolkit} is rate limiting. Try again shortly.`);
+  }
+  return new HttpError(502, `${spec.label} did not complete. ${reason || 'The app did not say why.'}`);
 }
 
 /**
@@ -165,8 +264,9 @@ export async function executeTool(env: Env, opts: { spec: ToolSpec; userId: stri
 
   // A 200 with successful:false is a provider-level failure, not a transport one.
   if (res.successful === false || (res.error != null && res.error !== '')) {
-    console.log(JSON.stringify({ event: 'composio.tool_failed', tool: opts.spec.slug, error: String(res.error ?? '').slice(0, 300) }));
-    throw new HttpError(502, `${opts.spec.label} did not complete. Check the connected account and try again.`);
+    const raw = String(res.error ?? '');
+    console.log(JSON.stringify({ event: 'composio.tool_failed', tool: opts.spec.slug, error: raw.slice(0, 300) }));
+    throw toolFailure(opts.spec, raw);
   }
   return { data: res.data ?? null, logId: typeof res.log_id === 'string' ? res.log_id : undefined };
 }

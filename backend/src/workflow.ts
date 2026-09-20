@@ -91,6 +91,8 @@ export async function reconcile(env: Env, body: Record<string, unknown>): Promis
 const GATHER_TIMEOUT_MS = 6_000;
 /** Per source, so one chatty inbox can't crowd out the calendar in the prompt. */
 const ITEMS_PER_SOURCE = 5;
+/** A lookup the user asked for directly, so show more than the planner needs. */
+const READ_ITEM_CAP = 25;
 
 const trim = (v: unknown, max = 200): string => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
@@ -116,19 +118,55 @@ function plannedReads(task: string, now: Date): { toolkit: IntegrationName; slug
  * Providers each return a different shape, and none of it is trusted. Pull out only the
  * few fields the planner needs and drop anything unrecognisable.
  */
-function toItems(source: IntegrationName, data: unknown): ContextItem[] {
-  const d = (data ?? {}) as Record<string, unknown>;
-  const rows = (Array.isArray(d.items) ? d.items : Array.isArray(d.messages) ? d.messages : Array.isArray(d.results) ? d.results : Array.isArray(data) ? data : []) as Record<string, unknown>[];
+/** Keys that mark an object as one displayable record rather than an envelope. */
+const ROW_KEYS = ['summary', 'subject', 'snippet', 'title', 'full_name', 'name'];
 
-  return rows.slice(0, ITEMS_PER_SOURCE).map((r) => {
+function toItems(source: IntegrationName, data: unknown, limit = ITEMS_PER_SOURCE): ContextItem[] {
+  let d = (data ?? {}) as Record<string, unknown>;
+  // GitHub search wraps its payload one level deeper ({ data: { items: [...] } }), so the
+  // rows were silently dropped and GitHub never appeared as a source. Unwrap before
+  // looking for rows, but only when the outer object is a pure envelope.
+  const envelope = d.data;
+  if (envelope && typeof envelope === 'object' && !Array.isArray(envelope) && !Array.isArray(d.items) && !Array.isArray(d.messages) && !Array.isArray(d.results)) {
+    d = envelope as Record<string, unknown>;
+  }
+
+  const list = Array.isArray(d.items) ? d.items : Array.isArray(d.messages) ? d.messages : Array.isArray(d.results) ? d.results : Array.isArray(data) ? data : null;
+  // A single-record read (one repository) has no list at all. Only fall back to treating
+  // the object itself as a row when no list key was present — an *empty* list means the
+  // provider genuinely returned nothing, and for a calendar the envelope's own `summary`
+  // is the account address, which must never be rendered as an event.
+  const rows = (list ?? (ROW_KEYS.some((k) => typeof d[k] === 'string') ? [d] : [])) as Record<string, unknown>[];
+
+  return rows.slice(0, limit).map((r) => {
     if (source === 'googlecalendar') {
       const start = (r.start ?? {}) as Record<string, unknown>;
-      return { source, title: trim(r.summary) || 'Untitled event', when: trim(start.dateTime ?? start.date, 40), detail: trim(r.location ?? r.description, 160), url: trim(r.htmlLink, 400) || undefined };
+      return {
+        source,
+        title: trim(r.summary) || 'Untitled event',
+        when: trim(start.dateTime ?? start.date, 40) || undefined,
+        detail: trim(r.location ?? r.description, 160) || undefined,
+        url: trim(r.htmlLink, 400) || undefined,
+      };
     }
     if (source === 'gmail') {
-      return { source, title: trim(r.subject ?? r.snippet) || 'Email', detail: trim(r.from ?? r.sender, 120), when: trim(r.date ?? r.internalDate, 40) };
+      return {
+        source,
+        title: trim(r.subject ?? r.snippet) || 'Email',
+        detail: trim(r.from ?? r.sender, 120) || undefined,
+        when: trim(r.date ?? r.internalDate, 40) || undefined,
+      };
     }
-    return { source, title: trim(r.title) || 'Issue', detail: trim(r.repository_url ?? r.html_url, 160), url: trim(r.html_url, 400) || undefined };
+    // GitHub covers both issues (title) and repositories (full_name + description).
+    const stars = typeof r.stargazers_count === 'number' ? `★ ${r.stargazers_count}` : '';
+    const detail = trim(r.description ?? r.repository_url ?? r.html_url, 160);
+    return {
+      source,
+      title: trim(r.title ?? r.full_name ?? r.name) || 'Item',
+      detail: [stars, detail].filter(Boolean).join(' · ') || undefined,
+      when: trim(r.updated_at ?? r.created_at, 40) || undefined,
+      url: trim(r.html_url, 400) || undefined,
+    };
   }).filter((i) => i.title);
 }
 
@@ -200,7 +238,9 @@ export async function runRead(env: Env, body: Record<string, unknown>) {
   if (isLive(env) && !connectedAccountId) throw new HttpError(409, `Connect your ${spec.toolkit} account first.`);
 
   const run = await executeTool(env, { spec, userId, args, connectedAccountId });
-  return { toolSlug: spec.slug, data: run.data, simulated: !isLive(env) };
+  // The panel showed raw provider JSON because nothing ever flattened a read. Same
+  // normaliser the planner uses, with a cap suited to a list the user asked to see.
+  return { toolSlug: spec.slug, data: run.data, simulated: !isLive(env), items: toItems(spec.toolkit, run.data, READ_ITEM_CAP) };
 }
 
 /**

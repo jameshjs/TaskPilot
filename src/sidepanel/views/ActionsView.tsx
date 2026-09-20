@@ -3,6 +3,7 @@ import type { ReconcileResponse, ToolDescriptor, ToolReadResponse } from '../../
 import { rpc } from '../../shared/rpc';
 import { useAction, useLoad, useToast } from '../hooks';
 import { Button, Card, Chip, Confirm, Empty } from '../ui';
+import { ToolResult } from './ToolResult';
 
 /**
  * External-app actions through the Worker's Composio layer.
@@ -83,7 +84,7 @@ export function ActionsView() {
               ))}
             </div>
             {reading ? (
-              <pre className="result">{JSON.stringify(reading.data, null, 2).slice(0, 4000)}</pre>
+              <ToolResult result={reading} />
             ) : (
               <p className="hint">Read-only — nothing is changed, so these run without asking.</p>
             )}
