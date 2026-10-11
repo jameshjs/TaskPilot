@@ -40,6 +40,10 @@ Then open TaskPilot → **Settings** → set the Worker URL (and token, if you s
 
 `npm run watch` rebuilds on change; reload the extension at `chrome://extensions` to pick it up.
 
+## Demo video
+
+Watch the TaskPilot demo to see the extension organize browser context and turn intent into actions: [view the demo on YouTube](https://youtu.be/fd3G3NXy0Jw).
+
 ---
 
 ## The five systems
